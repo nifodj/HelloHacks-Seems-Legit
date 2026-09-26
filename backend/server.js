@@ -1,4 +1,5 @@
 import { createServer } from 'node:http'
+import { createScreenshotRoute } from './routes/screenshotRoute.js'
 
 const PORT = Number(process.env.PORT) || 3001
 const MAX_BODY_BYTES = 10_000
@@ -126,6 +127,8 @@ function analyzeMessage(message, interaction = 'none') {
   }
 }
 
+const handleScreenshotRequest = createScreenshotRoute({ sendJson, analyzeMessage })
+
 async function handleRequest(request, response) {
   if (request.method === 'OPTIONS') {
     response.writeHead(204, {
@@ -134,6 +137,11 @@ async function handleRequest(request, response) {
       'Access-Control-Allow-Headers': 'Content-Type',
     })
     response.end()
+    return
+  }
+
+  if (request.method === 'POST' && request.url === '/api/analyze-screenshot') {
+    await handleScreenshotRequest(request, response)
     return
   }
 
