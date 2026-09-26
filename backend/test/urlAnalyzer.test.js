@@ -28,6 +28,13 @@ test('detects brand typosquatting and brand names placed in subdomains', async (
   assert.match(descriptions(digitSwap), /resembles Microsoft/i)
 })
 
+test('does not flag business domains that only contain a brand as part of a longer word', async () => {
+  for (const host of ['appleseedbooks.com', 'mygoogleadsagency.com', 'amazonwarehouse-careers.com']) {
+    const result = await analyzeUrl(`https://${host}`)
+    assert.deepEqual(result.brandAnalysis.impersonationSignals, [], host)
+  }
+})
+
 test('detects userinfo, IP hosts, HTTP and suspicious keywords as signals', async () => {
   const userinfo = await analyzeUrl('https://paypal.com@evil-example.com')
   assert.equal(userinfo.url.hostname, 'evil-example.com')

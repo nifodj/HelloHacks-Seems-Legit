@@ -128,10 +128,13 @@ function analyzeLocal(url, host, root, technical) {
   for (const { brand, domain } of brandEntries) {
     const brandDomain = domain.split('.')[0]
     const exactOfficial = host === domain || host.endsWith(`.${domain}`)
-    const brandInSubdomain = !exactOfficial && subdomains.some((part) => part.includes(brandDomain) || part.includes(domain))
-    const compactRoot = root.split('.')[0].toLowerCase().replace(/0/g, 'o').replace(/1/g, 'l').replace(/[^a-z]/g, '')
-    const candidates = [compactRoot.slice(0, brandDomain.length - 1), compactRoot.slice(0, brandDomain.length), compactRoot.slice(0, brandDomain.length + 1)]
-    const resembles = !exactOfficial && (root.includes(brandDomain) || candidates.some((candidate) => editDistance(candidate, brandDomain) <= 1))
+    const brandInSubdomain = !exactOfficial && subdomains.some((part) =>
+      part.split(/[-_]/).some((token) => token === brandDomain || token === domain))
+    const domainTokens = root.split('.')[0].toLowerCase().split(/[-_]/).filter(Boolean)
+    const resembles = !exactOfficial && domainTokens.some((token) => {
+      const normalized = token.replace(/0/g, 'o').replace(/1/g, 'l')
+      return normalized === brandDomain || editDistance(normalized, brandDomain) <= 1
+    })
     if (brandInSubdomain) signals.push(signal('brand_in_subdomain', 'high', `The hostname contains ${brand} in a subdomain, but the registered domain is ${root}.`, 'brandInSubdomain'))
     else if (resembles) signals.push(signal('brand_impersonation', 'high', `The registered domain ${root} resembles ${brand}, but is not one of its configured official domains.`, 'strongBrandImpersonation'))
   }

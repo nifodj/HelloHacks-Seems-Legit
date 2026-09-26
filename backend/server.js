@@ -3,8 +3,9 @@ import { pathToFileURL } from 'node:url'
 import { createScreenshotRoute } from './routes/screenshotRoute.js'
 import { findScamFormatMatches } from './services/scamReferences.js'
 import { analyzeUrl } from './services/urlAnalyzer.js'
-import { BRANDS } from './config/urlAnalysis.js'
+import { BRANDS, URL_SHORTENERS } from './config/urlAnalysis.js'
 import { editDistance } from './utils/domainSimilarity.js'
+import { getDomain } from 'tldts'
 
 const PORT = Number(process.env.PORT) || 3001
 const MAX_BODY_BYTES = 10_000
@@ -79,32 +80,39 @@ function findTypos(text) {
 function inspectLinks(message) {
   const links = message.match(/(?:https?:\/\/|www\.)[^\s<>"']+/gi) || []
   const findings = []
+  let hasOfficialBrandLink = false
+  const messageText = message.toLowerCase()
   const brands = Object.entries(BRANDS).map(([name, domains]) => ({
     name,
     labels: domains.map((domain) => domain.split('.')[0]),
     domains,
+    mentioned: [name.toLowerCase().replace(/\s/g, ''), ...domains.map((domain) => domain.split('.')[0])]
+      .some((label) => new RegExp(`(^|[^a-z0-9])${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}([^a-z0-9]|$)`, 'i').test(messageText)),
   }))
   for (const raw of links) {
     let url
     try { url = new URL((raw.startsWith('www.') ? `http://${raw}` : raw).replace(/[),.!?;:]+$/, '')) } catch { continue }
     const host = url.hostname.toLowerCase().replace(/^www\./, '')
+    const root = getDomain(host) || host
     if (url.username || url.password) findings.push('A link hides credentials before its domain.')
     if (/^(\d{1,3}\.){3}\d{1,3}$/.test(host)) findings.push('A link uses a numeric IP address instead of a recognizable domain.')
     if (host.split('.').some(label => label.startsWith('xn--'))) findings.push('A link uses an encoded domain name that can disguise its appearance.')
     if (/\.(zip|mov|click|top|work)$/i.test(host)) findings.push('A link uses a domain ending often abused in deceptive messages.')
+    if (URL_SHORTENERS.has(root)) findings.push('A link uses a URL shortener that hides its final destination.')
     for (const brand of brands) {
-      const officialHost = brand.domains.some((domain) => host === domain || host.endsWith(`.${domain}`))
-      const deceptiveBrand = !officialHost && brand.labels.some((label) => host.split('.').some((part) => part.includes(label) || editDistance(part, label) <= 1))
+      const officialRoots = brand.domains.map((domain) => getDomain(domain) || domain)
+      const officialHost = officialRoots.includes(root)
+      if (officialHost) hasOfficialBrandLink = true
+      if (!brand.mentioned) continue
+      const rootTokens = root.split('.')[0].toLowerCase().split(/[-_]/).filter(Boolean)
+      const deceptiveBrand = !officialHost && brand.labels.some((label) => rootTokens.some((part) => editDistance(part, label) <= 1))
       if (!officialHost && deceptiveBrand) {
         findings.push(`The link domain resembles ${brand.name} but is not an official ${brand.name} domain.`)
         break
       }
     }
   }
-  if (links.length && /\b(sign in|log ?in|verify your account|confirm your password|confirm your account)\b/i.test(message)) {
-    findings.push('The message links to a sign-in or account verification request.')
-  }
-  return findings
+  return { findings, hasOfficialBrandLink }
 }
 
 function inspectSender(message) {
@@ -127,41 +135,74 @@ function inspectSender(message) {
   return findings
 }
 
-// Message wording is summarized for context; only concrete typo, sender, and
-// link indicators affect the verdict. The interaction affects recovery advice only.
-function analyzeMessage(message, interaction = 'none') {
+function scoreMessage({ typoSignals, linkSignals, senderSignals, behaviorWeights, formatMatches, hasOfficialBrandLink }) {
+  const behaviorScore = Object.values(behaviorWeights).reduce((total, weight) => total + weight, 0)
+  const formatScore = hasOfficialBrandLink
+    ? 0
+    : formatMatches.reduce((total, match) => total + (match.strength === 'strong' ? 50 : 16), 0)
+  return Math.min(100,
+    Math.min(32, typoSignals.length * 16)
+    + (linkSignals.length ? 35 : 0)
+    + (senderSignals.length ? 30 : 0)
+    + behaviorScore
+    + formatScore)
+}
+
+// Behavioral signals contribute to the verdict as well as the displayed explanation.
+export function analyzeMessage(message, interaction = 'none') {
   const text = message.toLowerCase()
   const signals = []
   const typoSignals = findTypos(text)
-  const linkSignals = inspectLinks(message)
+  const linkInspection = inspectLinks(message)
+  const linkSignals = linkInspection.findings
   const senderSignals = inspectSender(message)
   signals.push(...typoSignals, ...linkSignals, ...senderSignals)
 
-  if (/urgent|immediately|act now|expires today|within 24 hours|final warning|account.{0,20}(suspend|lock)/.test(text)) {
+  const behaviorWeights = {}
+  if (/urgent|immediately|right away|right now|act now|expires today|within 24 hours|final warning|account.{0,20}(suspend|lock)|before.{0,20}(deleted|closed|locked)/.test(text)) {
     signals.push('The message creates pressure to act quickly.')
+    behaviorWeights.urgency = 8
   }
   if (/password|one[- ]time code|verification code|security code|sign[- ]in code|social security|credit card|bank details|date of birth|personal information/.test(text)) {
     signals.push('The message mentions a password, sign-in code, or sensitive personal or financial information.')
+    behaviorWeights.sensitiveInformation = 12
   }
-  if (/gift card|wire transfer|cryptocurrency|crypto payment|bitcoin|payment in crypto/.test(text)) {
+  if (/gift cards?|wire transfer|cryptocurrency|crypto payment|bitcoin|\bbtc\b|payment in crypto/.test(text)) {
     signals.push('The message mentions an unusual or hard-to-reverse payment method.')
+    behaviorWeights.riskyPayment = 24
+  } else if (/\b(pay|payment|money|cash|bail|transfer|send)\b/.test(text)) {
+    signals.push('The message asks for money or payment.')
+    behaviorWeights.moneyRequest = 16
   }
   if (/prize|you have won|claim your reward|unclaimed package|delivery fee/.test(text)) {
     signals.push('The message promises a prize or unexpected delivery that may be used to prompt a response.')
+    behaviorWeights.prizeOrDeliveryLure = 14
   }
   if (/keep this (secret|confidential)|do not tell|don't tell|gift cards? for (my|the) (boss|ceo|manager)/.test(text)) {
     signals.push('The message asks for secrecy, which can be a sign of impersonation or fraud.')
+    behaviorWeights.secrecy = 18
   }
-  if (/click here|sign in|log ?in|verify your account|confirm your account/.test(text) && /https?:\/\//.test(text) &&
-      !signals.some(signal => signal.includes('links to a sign-in or account verification request'))) {
-    signals.push('The message combines a link with a request to sign in or verify an account.')
+  if (/(virus|malware|infected|hacked|computer|device)/.test(text) && /(call|technician|support|help desk)/.test(text)) {
+    signals.push('The message claims a device is infected or compromised and directs you to call technical support.')
+    behaviorWeights.unsolicitedTechSupport = 28
+  }
+  if (/(grandma|grandmother|grandpa|grandfather|mom|mother|dad|father|son|daughter|grandchild)/.test(text)
+      && /(jail|arrest|accident|bail)/.test(text) && /(call|money|bail|help)/.test(text)) {
+    signals.push('The message resembles a family emergency asking for urgent help or money.')
+    behaviorWeights.familyEmergency = 28
+  }
+  if (/(webcam|recorded you|video of you|intimate video)/.test(text) && /(release|send|share|contacts)/.test(text)
+      && /(pay|bitcoin|btc|crypto|money)/.test(text)) {
+    signals.push('The message threatens to expose private recordings unless you pay.')
+    behaviorWeights.sextortionThreat = 40
   }
 
-  const concreteSignals = typoSignals.length + linkSignals.length + senderSignals.length
+  const formatMatches = findScamFormatMatches(message)
+  const riskScore = scoreMessage({ typoSignals, linkSignals, senderSignals, behaviorWeights, formatMatches, hasOfficialBrandLink: linkInspection.hasOfficialBrandLink })
   let verdict = 'likely legitimate'
   let confidence = 'low'
   let nextSteps = ['No common warning signs were found. If the message was unexpected, verify it through a phone number or website you already trust.']
-  if (concreteSignals >= 2) {
+  if (riskScore >= 45) {
     verdict = 'likely scam'
     confidence = 'medium'
     nextSteps = [
@@ -169,14 +210,17 @@ function analyzeMessage(message, interaction = 'none') {
       'Contact the claimed organization using its official website or phone number.',
       'Report or block the message using your email or messaging app’s built-in tools.',
     ]
-  } else if (concreteSignals === 1) {
+  } else if (riskScore >= 15) {
     verdict = 'suspicious'
     confidence = 'low'
     nextSteps = [
       'Pause before responding, clicking a link, or opening an attachment.',
       'Check the request through an official website or phone number you find yourself.',
     ]
-  } else {
+  } else if (riskScore > 0) {
+    nextSteps = ['A small warning sign was detected. If the message is unexpected, verify it through an official channel before acting.']
+  }
+  if (riskScore === 0) {
     signals.push('This basic checker did not find common warning signs; that does not prove the message is safe.')
   }
 
@@ -184,7 +228,7 @@ function analyzeMessage(message, interaction = 'none') {
     verdict,
     confidence,
     signals,
-    formatMatches: findScamFormatMatches(message),
+    formatMatches,
     nextSteps,
     recoverySteps: recoverySteps[interaction] ?? [],
     privacyReminder,
