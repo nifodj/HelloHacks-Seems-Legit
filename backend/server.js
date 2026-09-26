@@ -34,6 +34,14 @@ async function readRequestBody(request) {
 function analyzeMessage(message) {
   const signals = []
   const text = message.toLowerCase()
+  
+  if (Buffer.byteLength(text, 'utf8') === 0) {
+    signals.push('The message is empty.')
+  }
+
+  if (Buffer.byteLength(text, 'utf8') < 30) {
+    signals.push('The message is too short to analyze effectively.')
+  }
 
   if (/urgent|immediately|act now|expires today|within 24 hours/.test(text)) {
     signals.push('The message pressures you to act quickly.')
