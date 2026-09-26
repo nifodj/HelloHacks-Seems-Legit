@@ -1,6 +1,10 @@
 import { createServer } from 'node:http'
+import { pathToFileURL } from 'node:url'
 import { createScreenshotRoute } from './routes/screenshotRoute.js'
 import { findScamFormatMatches } from './services/scamReferences.js'
+import { analyzeUrl } from './services/urlAnalyzer.js'
+import { BRANDS } from './config/urlAnalysis.js'
+import { editDistance } from './utils/domainSimilarity.js'
 
 const PORT = Number(process.env.PORT) || 3001
 const MAX_BODY_BYTES = 10_000
@@ -75,35 +79,32 @@ function findTypos(text) {
 function inspectLinks(message) {
   const links = message.match(/(?:https?:\/\/|www\.)[^\s<>"']+/gi) || []
   const findings = []
+  const brands = Object.entries(BRANDS).map(([name, domains]) => ({
+    name,
+    labels: domains.map((domain) => domain.split('.')[0]),
+    domains,
+  }))
   for (const raw of links) {
     let url
-    try { url = new URL(raw.startsWith('www.') ? `http://${raw}` : raw) } catch { continue }
+    try { url = new URL((raw.startsWith('www.') ? `http://${raw}` : raw).replace(/[),.!?;:]+$/, '')) } catch { continue }
     const host = url.hostname.toLowerCase().replace(/^www\./, '')
     if (url.username || url.password) findings.push('A link hides credentials before its domain.')
     if (/^(\d{1,3}\.){3}\d{1,3}$/.test(host)) findings.push('A link uses a numeric IP address instead of a recognizable domain.')
     if (host.split('.').some(label => label.startsWith('xn--'))) findings.push('A link uses an encoded domain name that can disguise its appearance.')
     if (/\.(zip|mov|click|top|work)$/i.test(host)) findings.push('A link uses a domain ending often abused in deceptive messages.')
+    for (const brand of brands) {
+      const officialHost = brand.domains.some((domain) => host === domain || host.endsWith(`.${domain}`))
+      const deceptiveBrand = !officialHost && brand.labels.some((label) => host.split('.').some((part) => part.includes(label) || editDistance(part, label) <= 1))
+      if (!officialHost && deceptiveBrand) {
+        findings.push(`The link domain resembles ${brand.name} but is not an official ${brand.name} domain.`)
+        break
+      }
+    }
   }
   if (links.length && /\b(sign in|log ?in|verify your account|confirm your password|confirm your account)\b/i.test(message)) {
     findings.push('The message links to a sign-in or account verification request.')
   }
   return findings
-}
-
-function isOneEditAway(label, brand) {
-  if (Math.abs(label.length - brand.length) > 1) return false
-  let edits = 0
-  let left = 0
-  let right = 0
-  while (left < label.length && right < brand.length) {
-    if (label[left] === brand[right]) { left++; right++; continue }
-    if (++edits > 1) return false
-    if (label.length > brand.length) left++
-    else if (label.length < brand.length) right++
-    else { left++; right++ }
-  }
-  if (left < label.length || right < brand.length) edits++
-  return edits <= 1
 }
 
 function inspectSender(message) {
@@ -116,12 +117,12 @@ function inspectSender(message) {
     return ['The sender address appears malformed.']
   }
   const domain = email[2].toLowerCase()
-  const brands = ['paypal', 'microsoft', 'apple', 'amazon', 'google', 'netflix', 'bankofamerica', 'chase']
-  const mentionedBrand = brands.find(brand => new RegExp(`\\b${brand}\\b`, 'i').test(message))
+  const brands = Object.entries(BRANDS).map(([name, domains]) => ({ name, domains, labels: domains.map((item) => item.split('.')[0]) }))
+  const mentionedBrand = brands.find(({ name, labels }) => [name.toLowerCase().replace(/\s/g, ''), ...labels].some((label) => new RegExp(`\\b${label}\\b`, 'i').test(message)))
   if (mentionedBrand) {
-    const officialDomain = domain === `${mentionedBrand}.com` || domain.endsWith(`.${mentionedBrand}.com`)
-    const similarLabel = domain.split('.').some(label => isOneEditAway(label, mentionedBrand))
-    if (!officialDomain && similarLabel) findings.push(`The sender domain resembles ${mentionedBrand} but is not an official ${mentionedBrand} domain.`)
+    const officialDomain = mentionedBrand.domains.some((official) => domain === official || domain.endsWith(`.${official}`))
+    const similarLabel = domain.split('.').some((label) => mentionedBrand.labels.some((brand) => editDistance(label, brand) <= 1))
+    if (!officialDomain && similarLabel) findings.push(`The sender domain resembles ${mentionedBrand.name} but is not an official ${mentionedBrand.name} domain.`)
   }
   return findings
 }
@@ -209,8 +210,24 @@ async function handleRequest(request, response) {
     return
   }
 
+  if (request.method === 'POST' && request.url === '/api/analyze/url') {
+    try {
+      const data = await readRequestBody(request)
+      if (!data || typeof data !== 'object' || typeof data.url !== 'string') {
+        sendJson(response, 400, { success: false, error: 'Please provide a URL string.' })
+        return
+      }
+      const analysis = await analyzeUrl(data.url, data.messageContext ?? '')
+      sendJson(response, 200, analysis)
+    } catch (error) {
+      const tooLarge = error.message.startsWith('Message is too long')
+      sendJson(response, tooLarge ? 413 : 400, { success: false, error: tooLarge ? error.message : error.message || 'The request must contain valid JSON.' })
+    }
+    return
+  }
+
   if (request.method !== 'POST' || request.url !== '/api/analyze') {
-    sendJson(response, 404, { error: 'Not found. Use POST /api/analyze.' })
+    sendJson(response, 404, { error: 'Not found. Use POST /api/analyze, /api/analyze/url, or /api/analyze-screenshot.' })
     return
   }
 
@@ -234,6 +251,12 @@ async function handleRequest(request, response) {
   }
 }
 
-createServer(handleRequest).listen(PORT, () => {
-  console.log(`Seems Legit backend listening at http://localhost:${PORT}`)
-})
+export function createAppServer() {
+  return createServer(handleRequest)
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  createAppServer().listen(PORT, () => {
+    console.log(`Seems Legit backend listening at http://localhost:${PORT}`)
+  })
+}

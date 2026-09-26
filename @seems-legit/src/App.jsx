@@ -69,6 +69,21 @@ function formatAnalysis(analysis, extra = {}) {
   }
 }
 
+function formatUrlAnalysis(analysis) {
+  const label = analysis.verdict?.label || 'Analysis unavailable'
+  const level = label === 'likely scam' ? 'high' : label === 'suspicious' ? 'caution' : 'clear'
+  return {
+    ...analysis,
+    verdict: label,
+    riskScore: analysis.verdict?.riskScore,
+    confidence: analysis.verdict?.confidence,
+    level,
+    summary: analysis.recommendation || 'Review the URL signals before proceeding.',
+    signals: (analysis.signals || []).map((item) => item.description),
+    nextSteps: analysis.limitations || [],
+  }
+}
+
 function App() {
   const [inputType, setInputType] = useState('email')
   const [message, setMessage] = useState('')
@@ -120,6 +135,12 @@ function App() {
           method: 'POST',
           body: formData,
         })
+      } else if (inputType === 'url') {
+        response = await fetch(`${API_BASE_URL}/api/analyze/url`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: message.trim() }),
+        })
       } else {
         response = await fetch(`${API_BASE_URL}/api/analyze`, {
           method: 'POST',
@@ -138,6 +159,9 @@ function App() {
           extractedText: data.extractedText,
           ocrWarning: data.ocr?.warning,
         })
+      } else if (inputType === 'url') {
+        if (!data.success || !data.verdict) throw new Error(data.error || 'The URL could not be analyzed.')
+        formattedResult = formatUrlAnalysis(data)
       } else {
         formattedResult = formatAnalysis(data)
       }
@@ -213,7 +237,7 @@ function App() {
           </div>
           <div className="flex max-w-xs items-center gap-3 rounded-xl border border-[#1d3c46] bg-[#0c202a] px-4 py-3 text-[12px] leading-5 text-[#9ab0aa]">
             <ShieldIcon className="h-5 w-5 shrink-0 text-[#52dfcd]" />
-            <span><strong className="font-semibold text-[#d8e9e3]">Your content stays private.</strong> Text and screenshots are sent to your backend for analysis and are not stored.</span>
+            <span><strong className="font-semibold text-[#d8e9e3]">Your content stays on your backend by default.</strong> Submissions are not stored. If URL intelligence providers are enabled, the submitted URL, including its path and query, is sent to those providers.</span>
           </div>
         </section>
 
@@ -372,8 +396,18 @@ function App() {
                       <p className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#9ab5aa]">{result.level === 'error' ? 'Backend error' : result.level === 'pending' ? 'Action needed' : result.level === 'clear' ? 'Preliminary check' : 'Warning signs'}</p>
                     </div>
                     <h3 className="mt-2 text-base font-semibold text-[#eef7f3]">{result.verdict}</h3>
+                    {typeof result.riskScore === 'number' && <p className="mt-1 text-xs text-[#9ab5aa]">Risk score: {result.riskScore}/100 · {result.confidence} confidence</p>}
                     <p className="mt-1.5 text-[13px] leading-5 text-[#b5c9c0]">{result.summary}</p>
                   </div>
+
+                  {result.url && (
+                    <div className="mt-5 rounded-lg border border-[#24404a] bg-[#071720] p-3 text-xs leading-5 text-[#c7d9d1]">
+                      <p className="break-all font-semibold">{result.url.normalized}</p>
+                      <p className="mt-1">Registered domain: {result.url.registrableDomain} · {result.technical?.usesHttps ? 'HTTPS' : 'HTTP'}</p>
+                      <p>Threat sources checked: {result.threatIntelligence?.sourcesChecked?.join(', ') || (result.threatIntelligence?.providers?.length ? 'None responded successfully' : 'None configured')}</p>
+                      {result.threatIntelligence?.matches?.length > 0 && <p className="mt-1 text-[#ff9877]">Database matches: {result.threatIntelligence.matches.map((match) => `${match.source} (${match.category})`).join(', ')}</p>}
+                    </div>
+                  )}
 
                   {result.extractedText && (
                     <div className="mt-5">

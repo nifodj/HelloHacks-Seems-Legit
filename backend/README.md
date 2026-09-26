@@ -1,6 +1,6 @@
 # Seems Legit backend
 
-This small Node.js server accepts a message, checks it for common scam warning signs, and returns a cautious result. It does not save messages or call an AI service. Its checks are simple rules, so they can miss scams or flag ordinary messages.
+This Node.js server checks message text, screenshots, and URLs for common scam warning signs. Message and URL analysis use explainable rules; screenshot analysis uses local OCR. The server does not save submissions. Optional URL intelligence integrations can send the submitted URL to external providers when enabled, as described below.
 
 ## Run it
 
@@ -14,6 +14,36 @@ npm start
 The server listens at `http://localhost:3001`. Use `npm run dev` while changing code; Node restarts the server when a file changes.
 
 ## API
+
+### URL analysis
+
+Send a URL to the dedicated URL analyzer. A scheme is required in the UI; the API also accepts a bare hostname and normalizes it to HTTPS.
+
+```sh
+curl -X POST http://localhost:3001/api/analyze/url \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://secure.paypal.com.account-verification.example.com/login"}'
+```
+
+You may include `messageContext` for lightweight context signals. The response includes the normalized URL and registered domain, technical details, explainable signals, a cautious verdict and score, domain registration and DNS availability, provider status and matches, and limitations. Unknown reputation is never treated as proof that a URL is safe.
+
+Local checks do not visit the submitted site or follow redirects. DNS and RDAP checks are disabled by default and can be enabled on the backend with `URL_DNS_LOOKUP=true` and `URL_RDAP_LOOKUP=true`. These checks send the domain (not the full URL) to DNS resolvers or the RDAP service. Results are time limited and are skipped for local/private IP destinations.
+
+Threat-intelligence lookups are also disabled unless configured. Set backend environment variables to enable them:
+
+- `GOOGLE_SAFE_BROWSING_API_KEY` enables Google Safe Browsing.
+- `VIRUSTOTAL_API_KEY` enables VirusTotal.
+- `PHISHTANK_API_KEY` enables PhishTank.
+- `URLHAUS_ENABLED=true` enables URLhaus.
+- `OPENPHISH_ENABLED=true` enables the OpenPhish community feed, cached in memory for 15 minutes.
+
+Enabled providers receive the submitted URL, including its path and query parameters. Keep keys on the backend; do not add them to frontend environment variables. Provider failures are reported as unavailable and do not block local analysis. Threat-feed matches are grouped into one risk class so multiple feeds do not inflate the score repeatedly.
+
+`backend/config/urlAnalysis.js` contains the initial brand list, URL shorteners, maximum URL length, and risk weights for adjustment. Domain age and reputation are only shown when successfully retrieved. A URL that is absent from checked databases is not necessarily safe.
+
+URL checks intentionally never fetch the user submitted destination, execute page code, follow redirects, or download content. That avoids the SSRF and unsafe redirect risks described in the project brief.
+
+### Message analysis
 
 Send a `POST` request to `http://localhost:3001/api/analyze` with JSON:
 
