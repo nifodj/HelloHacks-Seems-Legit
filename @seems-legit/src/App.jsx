@@ -96,6 +96,7 @@ function App() {
   const [showRecoveryOptions, setShowRecoveryOptions] = useState(false)
   const [recoveryAction, setRecoveryAction] = useState('')
   const [isRecoveryPopupOpen, setIsRecoveryPopupOpen] = useState(false)
+  const [copyStatus, setCopyStatus] = useState('')
 
   function changeInputType(event) {
     setInputType(event.target.value)
@@ -105,6 +106,7 @@ function App() {
     setShowRecoveryOptions(false)
     setRecoveryAction('')
     setIsRecoveryPopupOpen(false)
+    setCopyStatus('')
   }
 
   async function handleFile(event) {
@@ -113,6 +115,7 @@ function App() {
 
     setResult(null)
     setIsRecoveryPopupOpen(false)
+    setCopyStatus('')
     setAttachment(file)
     if (inputType === 'email') {
       setMessage(await file.text())
@@ -125,6 +128,7 @@ function App() {
     setIsAnalyzing(true)
     setResult(null)
     setIsRecoveryPopupOpen(false)
+    setCopyStatus('')
 
     try {
       let response
@@ -202,6 +206,16 @@ function App() {
   async function requestRecoverySteps() {
     if (!recoveryAction || isAnalyzing) return
     await analyzeInput(recoveryAction)
+  }
+
+  async function copyExtractedText() {
+    if (!result?.extractedText) return
+    try {
+      await navigator.clipboard.writeText(result.extractedText)
+      setCopyStatus('Copied extracted text.')
+    } catch {
+      setCopyStatus('Copy is unavailable here. Select the text box and copy it manually.')
+    }
   }
 
   const selectedType = inputTypes.find((type) => type.value === inputType)
@@ -423,11 +437,30 @@ function App() {
                   )}
 
                   {result.extractedText && (
-                    <div className="mt-5">
-                      <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#6ed4c7]">Text recognized</h3>
-                      <pre className="mt-2 max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-[#24404a] bg-[#071720] p-3 font-sans text-xs leading-5 text-[#c7d9d1]">{result.extractedText}</pre>
+                    <section aria-labelledby="extracted-text-heading" className="mt-5 rounded-xl border border-[#284550] bg-[#0b202a] p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                          <h3 id="extracted-text-heading" className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#6ed4c7]">Text extracted from image</h3>
+                          <p className="mt-1 text-[11px] leading-5 text-[#8da59a]">This is the text that was checked for scam indicators.</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={copyExtractedText}
+                          className="rounded-lg border border-[#32616a] px-3 py-2 text-xs font-semibold text-[#8de8d9] transition hover:bg-[#153943] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#4ce8d3]"
+                        >
+                          Copy extracted text
+                        </button>
+                      </div>
+                      <textarea
+                        aria-label="Text extracted from the screenshot and analyzed"
+                        readOnly
+                        value={result.extractedText}
+                        rows={Math.min(8, Math.max(3, result.extractedText.split('\n').length))}
+                        className="mt-3 w-full resize-y rounded-lg border border-[#24404a] bg-[#071720] p-3 font-mono text-xs leading-5 text-[#c7d9d1] outline-none focus:border-[#43d9c6]"
+                      />
+                      {copyStatus && <p role="status" className="mt-2 text-[11px] text-[#9ab5aa]">{copyStatus}</p>}
                       {result.ocrWarning && <p className="mt-2 text-xs leading-5 text-[#ffd05c]">{result.ocrWarning}</p>}
-                    </div>
+                    </section>
                   )}
 
                   <div className="mt-5">
