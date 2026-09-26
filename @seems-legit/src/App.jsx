@@ -7,26 +7,7 @@ const inputTypes = [
   { value: 'url', label: 'URL', description: 'Paste a suspicious website address' },
 ]
 
-const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3001').replace(/\/+$/, '')
-
-const indicators = [
-  {
-    label: 'Urgent or threatening language',
-    pattern: /\b(urgent|immediately|within 24 hours|act now|account (?:suspended|locked|closed)|final warning)\b/i,
-  },
-  {
-    label: 'Request for sensitive information',
-    pattern: /\b(password|one.time code|verification code|login credentials|social security|\bssn\b)\b/i,
-  },
-  {
-    label: 'Unusual payment request',
-    pattern: /\b(gift cards?|wire transfers?|cryptocurrency|crypto|bank transfers?|payments?|processing fee|send (?:me )?(?:money|cash|funds)|give (?:me )?(?:your )?money|pay (?:me|now|immediately)|transfer (?:me )?(?:money|funds)|venmo|cash app|zelle)\b/i,
-  },
-  {
-    label: 'Shortened or unfamiliar link',
-    pattern: /\b(bit\.ly|tinyurl\.com|t\.co|cutt\.ly|rb\.gy)\b/i,
-  },
-]
+const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
 
 function ShieldIcon({ className = 'h-5 w-5' }) {
   return (
@@ -53,46 +34,29 @@ function ArrowIcon() {
   )
 }
 
-function analyzeMessage(message) {
-  const foundSignals = indicators
-    .filter((indicator) => indicator.pattern.test(message))
-    .map((indicator) => indicator.label)
-
-  if (foundSignals.length > 1) {
-    return {
-      verdict: 'Multiple scam signals found',
-      level: 'high',
-      summary: 'This message uses more than one common scam tactic. Do not reply, click links, or share information.',
-      signals: foundSignals,
-      nextSteps: [
-        'Contact the organization using a phone number or website you find independently.',
-        'If you already shared a password, change it on the official site and turn on multifactor authentication.',
-      ],
-    }
-  }
-
-  if (foundSignals.length === 1) {
-    return {
-      verdict: 'Take a closer look',
-      level: 'caution',
-      summary: 'One common warning sign appeared. Verify the request through a trusted, independent channel before acting.',
-      signals: foundSignals,
-      nextSteps: [
-        'Avoid using links or phone numbers included in the message.',
-        'Do not share codes, passwords, or payment details while you verify it.',
-      ],
-    }
-  }
+function formatAnalysis(analysis, extra = {}) {
+  const analysisLevel = analysis.verdict === 'likely scam'
+    ? 'high'
+    : analysis.verdict === 'suspicious'
+      ? 'caution'
+      : 'clear'
+  const level = extra.ocrWarning && analysisLevel === 'clear' ? 'caution' : analysisLevel
+  const summary = extra.ocrWarning
+    ? 'The screenshot contained little readable text, so this assessment may be unreliable. Review the recognized text before relying on it.'
+    : level === 'high'
+    ? 'Several warning signs were found. Do not click links, reply, or provide information or payment.'
+    : level === 'caution'
+      ? 'A warning sign was found. Verify the request through a trusted, independent channel before acting.'
+      : 'No common warning signs were found. This does not prove the message is safe.'
 
   return {
-    verdict: 'No obvious warning signs found',
-    level: 'clear',
-    summary: 'This quick check did not match the patterns it looks for. That does not prove the message is legitimate.',
-    signals: [],
-    nextSteps: [
-      'Check the sender and destination of any links before opening them.',
-      'Verify unexpected requests through the organization’s official website or phone number.',
-    ],
+    ...analysis,
+    verdict: extra.ocrWarning && analysisLevel === 'clear' ? 'Limited text recognized' : analysis.verdict,
+    level,
+    summary,
+    signals: Array.isArray(analysis.signals) ? analysis.signals : [],
+    nextSteps: Array.isArray(analysis.nextSteps) ? analysis.nextSteps : [],
+    ...extra,
   }
 }
 
@@ -129,55 +93,45 @@ function App() {
     setResult(null)
 
     try {
+      let response
       if (inputType === 'screenshot') {
+        if (!attachment) throw new Error('Choose a screenshot before submitting.')
         const formData = new FormData()
         formData.append('image', attachment)
 
-        const response = await fetch(`${API_BASE_URL}/api/analyze-screenshot`, {
+        response = await fetch(`${API_BASE_URL}/api/analyze-screenshot`, {
           method: 'POST',
           body: formData,
         })
-        const data = await response.json().catch(() => null)
+      } else {
+        response = await fetch(`${API_BASE_URL}/api/analyze`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: message.trim() }),
+        })
+      }
 
-        if (!data) {
-          throw new Error('The backend returned an unreadable response.')
-        }
-        if (!response.ok || !data.success) {
-          throw new Error(data.error || 'The screenshot could not be analyzed.')
-        }
-
-        const analysis = data.analysis
-        const level = analysis.verdict === 'likely scam'
-          ? 'high'
-          : analysis.verdict === 'suspicious'
-            ? 'caution'
-            : 'clear'
-        const summary = level === 'high'
-          ? 'The extracted text matched multiple scam warning signs.'
-          : level === 'caution'
-            ? 'The extracted text contains a warning sign or too little information for a confident check.'
-            : 'No common warning signs were found in the extracted text. This does not prove the message is safe.'
-
-        setResult({
-          ...analysis,
-          level,
-          summary,
+      const data = await response.json().catch(() => null)
+      if (!data) throw new Error('The backend returned an unreadable response.')
+      if (!response.ok) throw new Error(data.error || 'The message could not be analyzed.')
+      if (inputType === 'screenshot') {
+        if (!data.success || !data.analysis) throw new Error(data.error || 'The screenshot could not be analyzed.')
+        setResult(formatAnalysis(data.analysis, {
           extractedText: data.extractedText,
           ocrWarning: data.ocr?.warning,
-        })
+        }))
       } else {
-        await new Promise((resolve) => window.setTimeout(resolve, 550))
-        setResult(analyzeMessage(message))
+        setResult(formatAnalysis(data))
       }
     } catch (error) {
       setResult({
-        verdict: 'Screenshot analysis unavailable',
+        verdict: 'Analysis unavailable',
         level: 'error',
         summary: error instanceof TypeError
-          ? `Could not reach the backend at ${API_BASE_URL}. Make sure the backend server is running.`
+          ? `Could not reach the backend${API_BASE_URL ? ` at ${API_BASE_URL}` : ''}. Make sure it is running.`
           : error.message,
         signals: [],
-        nextSteps: ['Check the backend server and try the screenshot again.'],
+        nextSteps: ['Check the backend server and try again.'],
       })
     } finally {
       setIsAnalyzing(false)
@@ -222,7 +176,7 @@ function App() {
           </div>
           <div className="flex max-w-xs items-center gap-3 rounded-xl border border-[#1d3c46] bg-[#0c202a] px-4 py-3 text-[12px] leading-5 text-[#9ab0aa]">
             <ShieldIcon className="h-5 w-5 shrink-0 text-[#52dfcd]" />
-            <span><strong className="font-semibold text-[#d8e9e3]">Your content stays private.</strong> Pasted text is checked here; screenshots go to your backend for OCR.</span>
+            <span><strong className="font-semibold text-[#d8e9e3]">Your content stays private.</strong> Text and screenshots are sent to your backend for analysis and are not stored.</span>
           </div>
         </section>
 
@@ -348,8 +302,8 @@ function App() {
               {isAnalyzing ? (
                 <div className="flex flex-1 flex-col items-center justify-center py-12 text-center">
                   <span className="mb-4 h-9 w-9 animate-spin rounded-full border-2 border-[#dbe8dd] border-t-[#4e8764]" />
-                  <p className="text-sm font-semibold text-[#365240]">Checking for common warning signs</p>
-                  <p className="mt-1 text-xs text-[#829087]">{inputType === 'screenshot' ? 'Uploading screenshot and extracting text with OCR.' : 'Your text is being checked in this browser.'}</p>
+                  <p className="text-sm font-semibold text-[#dbeae3]">Checking for common warning signs</p>
+                  <p className="mt-1 text-xs text-[#8da59a]">{inputType === 'screenshot' ? 'Uploading screenshot and extracting text with OCR.' : 'Sending your message to the backend analyzer.'}</p>
                 </div>
               ) : result ? (
                 <div className="flex flex-1 flex-col animate-[fade-in_300ms_ease-out]">
@@ -392,6 +346,8 @@ function App() {
                     </ul>
                   </div>
 
+                  {result.disclaimer && <p className="mt-4 text-[11px] leading-5 text-[#8da59a]">{result.disclaimer}</p>}
+
                   {result.recoverySteps?.length > 0 && (
                     <div className="mt-5 border-t border-[#24404a] pt-4">
                       <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#ff9877]">If you already acted</h3>
@@ -420,7 +376,7 @@ function App() {
           </div>
 
           <div className="flex flex-col gap-4 border-t border-[#1b3945] bg-[#0d1e28] px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-8">
-            <p className="max-w-md text-[11px] leading-5 text-[#8da59a]">Avoid entering passwords, one-time codes, or payment information. Screenshot files are sent to your backend for OCR.</p>
+            <p className="max-w-md text-[11px] leading-5 text-[#8da59a]">Avoid entering passwords, one-time codes, or payment information. Content is sent to your backend for analysis and is not stored.</p>
             <button
               type="submit"
               disabled={!canSubmit || isAnalyzing}
