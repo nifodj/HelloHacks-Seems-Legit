@@ -29,19 +29,18 @@ You may include `messageContext` for lightweight context signals. The response i
 
 Local checks do not visit the submitted site or follow redirects. DNS and RDAP checks are disabled by default and can be enabled on the backend with `URL_DNS_LOOKUP=true` and `URL_RDAP_LOOKUP=true`. These checks send the domain (not the full URL) to DNS resolvers or the RDAP service. Results are time limited and are skipped for local/private IP destinations.
 
-Threat-intelligence lookups are also disabled unless configured. Set backend environment variables to enable them:
+Threat-intelligence lookups are disabled unless configured. Set backend environment variables to enable them:
 
 - `GOOGLE_SAFE_BROWSING_API_KEY` enables Google Safe Browsing.
 - `VIRUSTOTAL_API_KEY` enables VirusTotal.
-- `PHISHTANK_API_KEY` enables PhishTank.
-- `URLHAUS_ENABLED=true` enables URLhaus.
-- `OPENPHISH_ENABLED=true` enables the OpenPhish community feed, cached in memory for 15 minutes.
+- `PHISHTANK_ENABLED=true` enables PhishTank individual URL checks. An API key is optional for low-volume use; set `PHISHTANK_API_KEY` if you have one to use higher rate limits.
+- `URLHAUS_AUTH_KEY` enables URLhaus lookups and is sent using URLhaus's required `Auth-Key` header.
 
-Enabled providers receive the submitted URL, including its path and query parameters. Keep keys on the backend; do not add them to frontend environment variables. Provider failures are reported as unavailable and do not block local analysis. Threat-feed matches are grouped into one risk class so multiple feeds do not inflate the score repeatedly.
+Enabled providers receive the submitted URL, including its path and query parameters. Keep keys on the backend; do not add them to frontend environment variables. Provider failures are reported as unavailable and do not block local analysis. A confirmed URLhaus or verified PhishTank listing displays **Urgent: Malicious URL Detected**, an explanation of likely danger, database attribution, and recovery guidance. URLhaus focuses on malware distribution; PhishTank checks reported phishing URLs. Matches from multiple providers count once toward the risk score. An unlisted URL is not necessarily safe.
 
 `backend/config/urlAnalysis.js` contains the initial brand list, URL shorteners, maximum URL length, and risk weights for adjustment. Domain age and reputation are only shown when successfully retrieved. A URL that is absent from checked databases is not necessarily safe.
 
-URL checks intentionally never fetch the user submitted destination, execute page code, follow redirects, or download content. That avoids the SSRF and unsafe redirect risks described in the project brief.
+URL checks never fetch the submitted destination, execute page code, follow redirects, or download content. The enabled reputation providers receive the submitted URL to check their data. This avoids the SSRF and unsafe redirect risks described in the project brief.
 
 ### Message analysis
 

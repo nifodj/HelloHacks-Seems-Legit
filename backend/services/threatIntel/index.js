@@ -1,6 +1,5 @@
 const timeoutMs = 3500
 const sources = []
-let openPhishCache = { expiresAt: 0, urls: new Set() }
 
 async function timedFetch(url, options = {}) {
   return fetch(url, { ...options, signal: AbortSignal.timeout(timeoutMs) })
@@ -39,33 +38,28 @@ addSource('VirusTotal', Boolean(process.env.VIRUSTOTAL_API_KEY), async (url) => 
   return stats.malicious > 0 ? [{ source: 'VirusTotal', category: 'malicious', positives: stats.malicious, url }] : []
 })
 
-addSource('URLhaus', process.env.URLHAUS_ENABLED === 'true', async (url) => {
+addSource('URLhaus', Boolean(process.env.URLHAUS_AUTH_KEY), async (url) => {
   const response = await timedFetch('https://urlhaus-api.abuse.ch/v1/url/', {
-    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ url }),
+    method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'Auth-Key': process.env.URLHAUS_AUTH_KEY }, body: new URLSearchParams({ url }),
   })
   if (!response.ok) throw new Error(`HTTP ${response.status}`)
   const data = await response.json()
-  return data.query_status === 'ok' ? [{ source: 'URLhaus', category: 'malware', url }] : []
+  return data.query_status === 'ok' ? [{ source: 'URLhaus', category: data.threat || 'malware', url, referenceUrl: 'https://urlhaus.abuse.ch/browse/' }] : []
 })
 
-addSource('OpenPhish Community Feed', process.env.OPENPHISH_ENABLED === 'true', async (url) => {
-  if (Date.now() >= openPhishCache.expiresAt) {
-    const response = await timedFetch('https://openphish.com/feed.txt')
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    const text = await response.text()
-    openPhishCache = { expiresAt: Date.now() + 15 * 60 * 1000, urls: new Set(text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)) }
-  }
-  return openPhishCache.urls.has(url) ? [{ source: 'OpenPhish Community Feed', category: 'phishing', url }] : []
-})
-
-addSource('PhishTank', Boolean(process.env.PHISHTANK_API_KEY), async (url) => {
+addSource('PhishTank', process.env.PHISHTANK_ENABLED === 'true' || Boolean(process.env.PHISHTANK_API_KEY), async (url) => {
   const response = await timedFetch('https://checkurl.phishtank.com/checkurl/', {
     method: 'POST', headers: { 'content-type': 'application/x-www-form-urlencoded', 'user-agent': 'SeemsLegit/1.0' },
-    body: new URLSearchParams({ url, format: 'json', app_key: process.env.PHISHTANK_API_KEY }),
+    body: new URLSearchParams({ url, format: 'json', ...(process.env.PHISHTANK_API_KEY ? { app_key: process.env.PHISHTANK_API_KEY } : {}) }),
   })
   if (!response.ok) throw new Error(`HTTP ${response.status}`)
   const data = await response.json()
-  return data.results?.in_database ? [{ source: 'PhishTank', category: 'phishing', url }] : []
+  const result = data.results
+  const verified = result?.verified === 'y' || result?.verified === true
+  const valid = result?.valid === 'y' || result?.valid === true
+  return result?.in_database && verified && valid
+    ? [{ source: 'PhishTank', category: 'phishing', url, referenceUrl: result.phish_detail_page || 'https://phishtank.org/' }]
+    : []
 })
 
 export async function checkThreatIntelligence(url) {

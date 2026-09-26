@@ -71,7 +71,8 @@ function formatAnalysis(analysis, extra = {}) {
 
 function formatUrlAnalysis(analysis) {
   const label = analysis.verdict?.label || 'Analysis unavailable'
-  const level = label === 'likely scam' ? 'high' : label === 'suspicious' ? 'caution' : 'clear'
+  const confirmedMalicious = label === 'Urgent: Malicious URL Detected'
+  const level = confirmedMalicious || label === 'likely scam' ? 'high' : label === 'suspicious' ? 'caution' : 'clear'
   return {
     ...analysis,
     verdict: label,
@@ -82,7 +83,7 @@ function formatUrlAnalysis(analysis) {
     signals: (analysis.signals || []).map((item) => item.description),
     formatMatches: [],
     nextSteps: analysis.limitations || [],
-    recoverySteps: [],
+    recoverySteps: analysis.recoverySteps || [],
   }
 }
 
@@ -409,7 +410,15 @@ function App() {
                       <p className="break-all font-semibold">{result.url.normalized}</p>
                       <p className="mt-1">Registered domain: {result.url.registrableDomain} · {result.technical?.usesHttps ? 'HTTPS' : 'HTTP'}</p>
                       <p>Threat sources checked: {result.threatIntelligence?.sourcesChecked?.join(', ') || (result.threatIntelligence?.providers?.length ? 'None responded successfully' : 'None configured')}</p>
-                      {result.threatIntelligence?.matches?.length > 0 && <p className="mt-1 text-[#ff9877]">Database matches: {result.threatIntelligence.matches.map((match) => `${match.source} (${match.category})`).join(', ')}</p>}
+                      {result.threatIntelligence?.matches?.length > 0 && (
+                        <div className="mt-2 space-y-1 text-[#ff9877]">
+                          {result.threatIntelligence.matches.map((match) => (
+                            <p key={`${match.source}-${match.category}`}>
+                              Listed by <a href={match.referenceUrl || (match.source === 'URLhaus' ? 'https://urlhaus.abuse.ch/browse/' : 'https://phishtank.org/')} target="_blank" rel="noreferrer" className="underline underline-offset-2">{match.source}</a> ({match.category})
+                            </p>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
 

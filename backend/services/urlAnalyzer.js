@@ -191,6 +191,12 @@ export async function analyzeUrl(input, messageContext = '') {
     if (contextTerms) local.signals.push(signal('message_context', 'medium', 'The message context contains urgency, account, or payment language.', 'suspiciousPattern'))
   }
   const verdict = calculateRisk(local.signals, threatIntelligence.matches)
+  const maliciousMatches = threatIntelligence.matches
+  if (maliciousMatches.length) verdict.label = 'Urgent: Malicious URL Detected'
+  const threatCategories = new Set(maliciousMatches.map((match) => match.category))
+  const threatExplanation = [...threatCategories].some((category) => /phish|social_engineering/i.test(category))
+    ? 'This URL is listed as a phishing site. It may impersonate a trusted service to steal sign-in details, payment information, or other personal data.'
+    : 'This URL is listed in a threat database as a malware distribution link. Visiting it may expose your device to malicious downloads or harmful software.'
   const registrableLabels = root.split('.')
   return {
     success: true,
@@ -203,7 +209,13 @@ export async function analyzeUrl(input, messageContext = '') {
     threatIntelligence,
     dns,
     scamPattern: local.scamPattern,
-    recommendation: verdict.label === 'likely scam' ? 'Do not open this URL or enter personal information or payment details. Verify through an independently found official channel.' : 'Do not enter sensitive information unless you independently verify the destination through an official channel.',
+    recommendation: maliciousMatches.length ? threatExplanation : verdict.label === 'likely scam' ? 'Do not open this URL or enter personal information or payment details. Verify through an independently found official channel.' : 'Do not enter sensitive information unless you independently verify the destination through an official channel.',
+    recoverySteps: maliciousMatches.length ? [
+      'Do not open the URL again. Close the page if it is still open, and do not download or run files from it.',
+      'If you entered a password, change it using the service’s official website or app and sign out of other sessions. Change it anywhere else you reused it.',
+      'If you shared a sign-in code or payment details, contact the service or your bank through an official channel immediately and review recent account activity.',
+      'Run your device’s security scan if you downloaded or opened a file, and report the URL using your browser or security software’s reporting tools.',
+    ] : [],
     limitations: ['A URL not found in the databases checked is not necessarily safe.', 'URL checks can produce false positives and false negatives.', 'HTTPS encrypts a connection but does not establish that a site is trustworthy.'],
   }
 }
