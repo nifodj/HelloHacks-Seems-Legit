@@ -18,7 +18,7 @@ const indicators = [
   },
   {
     label: 'Unusual payment request',
-    pattern: /\b(gift card|wire transfer|cryptocurrency|crypto|bank transfer|payment|processing fee)\b/i,
+    pattern: /\b(gift cards?|wire transfers?|cryptocurrency|crypto|bank transfers?|payments?|processing fee|send (?:me )?(?:money|cash|funds)|give (?:me )?(?:your )?money|pay (?:me|now|immediately)|transfer (?:me )?(?:money|funds)|venmo|cash app|zelle)\b/i,
   },
   {
     label: 'Shortened or unfamiliar link',
