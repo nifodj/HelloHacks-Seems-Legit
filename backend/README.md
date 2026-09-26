@@ -39,11 +39,14 @@ The response includes:
 - `verdict`: `likely legitimate`, `suspicious`, or `likely scam`
 - `confidence`: a cautious `low` or `medium` estimate, not a guarantee
 - `signals`: the reasons the rules matched
+- `formatMatches`: scam-format references that share at least two cues with the message. Each match includes its name, strength (`partial` or `strong`), matched cues, and a link to the public source.
 - `nextSteps`: what to do about the message
 - `recoverySteps`: action-specific help, or an empty list
 - `privacyReminder` and `disclaimer`: safety reminders to show in the app
 
 An empty message gets HTTP `400`, a message over the request limit gets `413`, and other paths get `404`. The server accepts browser requests from the local frontend at `http://localhost:5173`.
+
+`formatMatches` compares cue groups from FTC and FBI Internet Crime Complaint Center advisories covering account/payment alerts, unexpected invoices, delivery-fee notices, vendor payment changes, and executive or payroll impersonation. It reports a resemblance to a scam format, not a match to an exact archived email or proof that a message is fraudulent. Reference pages are linked in each match; the analyzer does not fetch them at request time.
 
 ## Try it
 

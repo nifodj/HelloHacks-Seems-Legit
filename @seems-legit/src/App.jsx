@@ -55,6 +55,7 @@ function formatAnalysis(analysis, extra = {}) {
     level,
     summary,
     signals: Array.isArray(analysis.signals) ? analysis.signals : [],
+    formatMatches: Array.isArray(analysis.formatMatches) ? analysis.formatMatches : [],
     nextSteps: Array.isArray(analysis.nextSteps) ? analysis.nextSteps : [],
     ...extra,
   }
@@ -336,6 +337,34 @@ function App() {
                       </ul>
                     ) : (
                       <p className="mt-2 text-[13px] text-[#8ca59a]">{result.level === 'pending' ? 'No text signals checked yet.' : 'No matching patterns in this quick check.'}</p>
+                    )}
+                  </div>
+
+                  <div className="mt-5 border-t border-[#24404a] pt-4">
+                    <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#6ed4c7]">Reference format matches</h3>
+                    <p className="mt-2 text-[11px] leading-5 text-[#8da59a]">These results compare message cues with scam formats described by the FTC and FBI. They do not identify an exact archived email.</p>
+                    {result.formatMatches.length ? (
+                      <ul className="mt-3 space-y-3">
+                        {result.formatMatches.map((match) => (
+                          <li key={match.name} className="rounded-lg border border-[#284550] bg-[#0b202a] p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <p className="text-[13px] font-semibold text-[#d5e4dd]">{match.name}</p>
+                              <span className="rounded-full border border-[#806739] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[#ffd05c]">
+                                {match.strength === 'strong' ? 'Strong resemblance' : 'Partial resemblance'}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-[11px] text-[#9ab5aa]">{match.matchedCues.length} of {match.referenceCueCount} reference cues found</p>
+                            <ul className="mt-2 list-inside list-disc space-y-1 text-[11px] leading-5 text-[#b5c9c0]">
+                              {match.matchedCues.map((cue) => <li key={cue}>{cue}</li>)}
+                            </ul>
+                            <a href={match.sourceUrl} target="_blank" rel="noreferrer" className="mt-2 inline-block text-[11px] font-semibold text-[#57d6c5] underline decoration-[#32616a] underline-offset-2 hover:text-[#a4f58c]">
+                              Source: {match.source}
+                            </a>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p className="mt-2 text-[12px] leading-5 text-[#9ab5aa]">No close format match was found in these references. Scams vary, so this does not establish that a message is legitimate.</p>
                     )}
                   </div>
 

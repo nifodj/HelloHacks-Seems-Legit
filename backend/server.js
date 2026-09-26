@@ -1,5 +1,6 @@
 import { createServer } from 'node:http'
 import { createScreenshotRoute } from './routes/screenshotRoute.js'
+import { findScamFormatMatches } from './services/scamReferences.js'
 
 const PORT = Number(process.env.PORT) || 3001
 const MAX_BODY_BYTES = 10_000
@@ -182,6 +183,7 @@ function analyzeMessage(message, interaction = 'none') {
     verdict,
     confidence,
     signals,
+    formatMatches: findScamFormatMatches(message),
     nextSteps,
     recoverySteps: recoverySteps[interaction] ?? [],
     privacyReminder,
