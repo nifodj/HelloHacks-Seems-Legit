@@ -77,6 +77,7 @@ function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false)
   const [showRecoveryOptions, setShowRecoveryOptions] = useState(false)
   const [recoveryAction, setRecoveryAction] = useState('')
+  const [isRecoveryPopupOpen, setIsRecoveryPopupOpen] = useState(false)
 
   function changeInputType(event) {
     setInputType(event.target.value)
@@ -85,6 +86,7 @@ function App() {
     setResult(null)
     setShowRecoveryOptions(false)
     setRecoveryAction('')
+    setIsRecoveryPopupOpen(false)
   }
 
   async function handleFile(event) {
@@ -92,6 +94,7 @@ function App() {
     if (!file) return
 
     setResult(null)
+    setIsRecoveryPopupOpen(false)
     setAttachment(file)
     if (inputType === 'email') {
       setMessage(await file.text())
@@ -103,6 +106,7 @@ function App() {
 
     setIsAnalyzing(true)
     setResult(null)
+    setIsRecoveryPopupOpen(false)
 
     try {
       let response
@@ -127,15 +131,18 @@ function App() {
       const data = await response.json().catch(() => null)
       if (!data) throw new Error('The backend returned an unreadable response.')
       if (!response.ok) throw new Error(data.error || 'The message could not be analyzed.')
+      let formattedResult
       if (inputType === 'screenshot') {
         if (!data.success || !data.analysis) throw new Error(data.error || 'The screenshot could not be analyzed.')
-        setResult(formatAnalysis(data.analysis, {
+        formattedResult = formatAnalysis(data.analysis, {
           extractedText: data.extractedText,
           ocrWarning: data.ocr?.warning,
-        }))
+        })
       } else {
-        setResult(formatAnalysis(data))
+        formattedResult = formatAnalysis(data)
       }
+      setResult(formattedResult)
+      setIsRecoveryPopupOpen(Boolean(formattedResult.recoverySteps?.length))
       setShowRecoveryOptions(false)
     } catch (error) {
       setResult({
@@ -147,6 +154,7 @@ function App() {
         signals: [],
         nextSteps: ['Check the backend server and try again.'],
       })
+      setIsRecoveryPopupOpen(false)
     } finally {
       setIsAnalyzing(false)
     }
@@ -275,7 +283,7 @@ function App() {
                         id="message"
                         type="url"
                         value={message}
-                        onChange={(event) => { setMessage(event.target.value); setResult(null) }}
+                        onChange={(event) => { setMessage(event.target.value); setResult(null); setIsRecoveryPopupOpen(false) }}
                         maxLength={2048}
                         required
                         pattern="https?://.+"
@@ -293,7 +301,7 @@ function App() {
                     <textarea
                       id="message"
                       value={message}
-                      onChange={(event) => { setMessage(event.target.value); setResult(null) }}
+                      onChange={(event) => { setMessage(event.target.value); setResult(null); setIsRecoveryPopupOpen(false) }}
                       maxLength={10000}
                       placeholder={inputType === 'email' ? 'Paste the email text here. You can include the sender, subject, and message body...' : 'Add the words you remember from the call. Include what they asked you to do...'}
                       className="min-h-[238px] w-full resize-y rounded-xl border border-[#284550] bg-[#091923] p-4 text-sm leading-6 text-[#e0eeea] outline-none transition placeholder:text-[#6f8981] focus:border-[#43d9c6] focus:ring-4 focus:ring-[#43d9c6]/15"
@@ -306,10 +314,32 @@ function App() {
                   {attachment && inputType === 'email' && (
                     <div className="mt-3 flex items-center justify-between gap-3 rounded-lg bg-[#122a32] px-3 py-2 text-xs text-[#b3c9c0]">
                       <span className="truncate">Loaded {attachment.name}</span>
-                      <button type="button" onClick={() => { setAttachment(null); setMessage('') }} className="shrink-0 font-semibold hover:text-[#4ce8d3]">Remove</button>
+                      <button type="button" onClick={() => { setAttachment(null); setMessage(''); setIsRecoveryPopupOpen(false) }} className="shrink-0 font-semibold hover:text-[#4ce8d3]">Remove</button>
                     </div>
                   )}
                 </>
+              )}
+
+              {isRecoveryPopupOpen && result?.recoverySteps?.length > 0 && (
+                <section role="region" aria-live="polite" aria-labelledby="recovery-popup-heading" className="mt-5 rounded-xl border border-[#805144] bg-[#2b2222] p-4 shadow-[0_12px_32px_-18px_rgba(255,152,119,0.65)]">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#ff9877]">Recovery guidance</p>
+                      <h3 id="recovery-popup-heading" className="mt-1 text-sm font-semibold text-[#fff0e7]">What to do now</h3>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label="Close recovery steps"
+                      onClick={() => setIsRecoveryPopupOpen(false)}
+                      className="rounded-md px-2 py-1 text-xs font-semibold text-[#d9b8aa] hover:bg-[#493331] hover:text-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ffd05c]"
+                    >
+                      Close
+                    </button>
+                  </div>
+                  <ol className="mt-3 list-inside list-decimal space-y-2 text-[13px] leading-5 text-[#eedbd3]">
+                    {result.recoverySteps.map((step) => <li key={step}>{step}</li>)}
+                  </ol>
+                </section>
               )}
             </section>
 
@@ -439,13 +469,14 @@ function App() {
 
                   {result.disclaimer && <p className="mt-4 text-[11px] leading-5 text-[#8da59a]">{result.disclaimer}</p>}
 
-                  {result.recoverySteps?.length > 0 && (
-                    <div className="mt-5 border-t border-[#24404a] pt-4">
-                      <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#ff9877]">If you already acted</h3>
-                      <ul className="mt-2 space-y-2">
-                        {result.recoverySteps.map((step) => <li key={step} className="text-[13px] leading-5 text-[#b5c9c0]">{step}</li>)}
-                      </ul>
-                    </div>
+                  {result.recoverySteps?.length > 0 && !isRecoveryPopupOpen && (
+                    <button
+                      type="button"
+                      onClick={() => setIsRecoveryPopupOpen(true)}
+                      className="mt-5 self-start rounded-lg border border-[#805144] px-3 py-2 text-xs font-semibold text-[#ffd0a6] hover:bg-[#211f23] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ffd05c]"
+                    >
+                      View recovery steps
+                    </button>
                   )}
                 </div>
               ) : (
