@@ -67,7 +67,7 @@ For example, if the person entered a password after clicking, send `"interaction
 The response includes:
 
 - `verdict`: `likely legitimate`, `suspicious`, or `likely scam`
-- `confidence`: a cautious `low` or `medium` estimate, not a guarantee
+- `confidence`: a cautious `low`, `medium`, or `high` estimate, not a guarantee (`high` is used for an exact URLhaus listing)
 - `signals`: the reasons the rules matched
 - `formatMatches`: scam-format references that share at least two cues with the message. Each match includes its name, strength (`partial` or `strong`), matched cues, and a link to the public source.
 - `nextSteps`: what to do about the message
@@ -141,6 +141,19 @@ npm test
 The route tests use generated images and a controlled OCR result so they run quickly and reproducibly. The OCR-failure case injects a simulated worker failure. To exercise real OCR, start the server and use `curl` with a real screenshot fixture as shown above.
 
 Other expected error statuses: malformed multipart or missing `image` returns `400`; an unsupported request content type returns `415`; and internal analysis failures return a generic `500` response.
+
+## URLhaus URL lookup
+
+The frontend sends URL checks to `POST /api/check-url`. The backend looks up the exact URL with URLhaus and returns `urlhaus.status` as `listed`, `not_listed`, or `unavailable`. A listed result includes a URLhaus record link when available and recovery guidance. A missing key or unavailable service is reported separately from a no-match result; local URL checks still run in that case.
+
+URLhaus requires an Auth-Key for API requests. Get a free key from the [URLhaus API page](https://urlhaus.abuse.ch/api/) and set it in the backend process environment. In PowerShell, before starting the server:
+
+```powershell
+$env:URLHAUS_AUTH_KEY = "your-auth-key"
+npm start
+```
+
+Keep the key on the backend. The entered URL is sent to URLhaus for the lookup; this app does not open the address.
 
 ## Connecting a machine-learning service later
 
