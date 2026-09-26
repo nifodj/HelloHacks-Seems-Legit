@@ -1,6 +1,6 @@
 # HelloHacks-Seems-Legit
 
-HelloHacks 2026 project: check suspicious emails and text messages for scam indicators, then give people practical next steps.
+HelloHacks 2026 project: check suspicious emails and forms of communication of indicators of a scam and provides information.
 
 ## Project Brief
 
