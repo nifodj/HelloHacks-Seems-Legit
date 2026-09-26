@@ -2,13 +2,9 @@ import { createServer } from 'node:http'
 import { pathToFileURL } from 'node:url'
 import { createScreenshotRoute } from './routes/screenshotRoute.js'
 import { findScamFormatMatches } from './services/scamReferences.js'
-<<<<<<< Updated upstream
 import { analyzeUrl } from './services/urlAnalyzer.js'
 import { BRANDS } from './config/urlAnalysis.js'
 import { editDistance } from './utils/domainSimilarity.js'
-=======
-import { lookupUrlhaus, UrlhausLookupError } from './services/urlhausService.js'
->>>>>>> Stashed changes
 
 const PORT = Number(process.env.PORT) || 3001
 const MAX_BODY_BYTES = 10_000
@@ -40,13 +36,6 @@ const recoverySteps = {
     'Watch for unfamiliar account activity and consider contacting your bank if financial details were included.',
   ],
 }
-
-const maliciousUrlRecoverySteps = [
-  'Do not open this URL or download files from it. Close the message or page that contained the link.',
-  'If you opened the page, close it and do not enter passwords, payment details, or verification codes.',
-  'If you downloaded a file, do not open it. Delete it and run your device’s security scan.',
-  'If you entered a password or payment details, contact the affected provider or bank through its official website or phone number.',
-]
 
 function sendJson(response, statusCode, data) {
   response.writeHead(statusCode, {
@@ -205,72 +194,6 @@ function analyzeMessage(message, interaction = 'none') {
 
 const handleScreenshotRequest = createScreenshotRoute({ sendJson, analyzeMessage })
 
-async function handleUrlCheck(request, response) {
-  try {
-    const data = await readRequestBody(request)
-    if (!data || typeof data !== 'object' || typeof data.url !== 'string' || data.url.trim().length === 0) {
-      sendJson(response, 400, { error: 'Please provide a URL to check.' })
-      return
-    }
-
-    const url = data.url.trim()
-    if (url.length > 2048) {
-      sendJson(response, 400, { error: 'Please use a URL shorter than 2,048 characters.' })
-      return
-    }
-    let parsedUrl
-    try {
-      parsedUrl = new URL(url)
-    } catch {
-      sendJson(response, 400, { error: 'Enter a valid URL starting with http:// or https://.' })
-      return
-    }
-    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
-      sendJson(response, 400, { error: 'Only http:// and https:// URLs can be checked.' })
-      return
-    }
-
-    const analysis = analyzeMessage(url)
-    try {
-      const lookup = await lookupUrlhaus(url)
-      if (lookup.listed) {
-        analysis.verdict = 'likely scam'
-        analysis.confidence = 'high'
-        analysis.signals = [
-          `URLhaus lists this exact URL as ${lookup.threat.replaceAll('_', ' ')}.`,
-          ...analysis.signals,
-        ]
-        analysis.nextSteps = [
-          'Do not open the URL or download anything from it.',
-          'If you opened it or downloaded a file, follow the recovery guidance below.',
-          'Verify the original message through an official channel, then report or block it.',
-        ]
-        analysis.recoverySteps = maliciousUrlRecoverySteps
-      }
-
-      sendJson(response, 200, {
-        success: true,
-        analysis,
-        urlhaus: { status: lookup.listed ? 'listed' : 'not_listed', ...lookup },
-      })
-    } catch (error) {
-      const message = error instanceof UrlhausLookupError && error.code === 'missing_auth_key'
-        ? 'URLhaus lookup is not configured. Set URLHAUS_AUTH_KEY on the backend.'
-        : 'URLhaus could not be reached, so this result uses local checks only.'
-      sendJson(response, 200, {
-        success: true,
-        analysis,
-        urlhaus: { status: 'unavailable', message },
-      })
-    }
-  } catch (error) {
-    const tooLarge = error.message.startsWith('Message is too long')
-    sendJson(response, tooLarge ? 413 : 400, {
-      error: tooLarge ? error.message : 'The request must contain valid JSON with a url field.',
-    })
-  }
-}
-
 async function handleRequest(request, response) {
   if (request.method === 'OPTIONS') {
     response.writeHead(204, {
@@ -279,11 +202,6 @@ async function handleRequest(request, response) {
       'Access-Control-Allow-Headers': 'Content-Type',
     })
     response.end()
-    return
-  }
-
-  if (request.method === 'POST' && request.url === '/api/check-url') {
-    await handleUrlCheck(request, response)
     return
   }
 

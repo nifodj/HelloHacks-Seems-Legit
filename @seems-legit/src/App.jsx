@@ -15,31 +15,6 @@ const recoveryActions = [
   { value: 'shared_personal_info', label: 'I shared other personal information' },
 ]
 
-const recoveryStepsByAction = {
-  clicked_link: [
-    'Close the page. Do not enter information or download anything from it.',
-    'If you entered a password, change it from the organization’s official website and sign out of other sessions.',
-    'If you downloaded a file, do not open it; run your device’s security scan.',
-  ],
-  shared_password: [
-    'Change that password now using the organization’s official website or app, not the message link.',
-    'Change the same password anywhere else you reused it, then turn on multi-factor authentication if available.',
-    'Sign out of other sessions and contact the organization through an official channel.',
-  ],
-  shared_code: [
-    'Contact the organization using its official website or phone number and say you shared a sign-in code.',
-    'Secure the account: change its password, sign out of other sessions, and review recent activity.',
-  ],
-  shared_payment: [
-    'Contact your bank, card issuer, or payment service immediately using the number on its official website or card.',
-    'Ask whether the payment can be stopped or reversed, and monitor the account for unfamiliar activity.',
-  ],
-  shared_personal_info: [
-    'Contact the relevant organization through its official channel and ask what steps to take for the information you shared.',
-    'Watch for unfamiliar account activity and consider contacting your bank if financial details were included.',
-  ],
-}
-
 const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
 
 function ShieldIcon({ className = 'h-5 w-5' }) {
@@ -163,11 +138,7 @@ function App() {
           body: formData,
         })
       } else if (inputType === 'url') {
-<<<<<<< Updated upstream
         response = await fetch(`${API_BASE_URL}/api/analyze/url`, {
-=======
-        response = await fetch(`${API_BASE_URL}/api/check-url`, {
->>>>>>> Stashed changes
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ url: message.trim() }),
@@ -191,22 +162,8 @@ function App() {
           ocrWarning: data.ocr?.warning,
         })
       } else if (inputType === 'url') {
-<<<<<<< Updated upstream
         if (!data.success || !data.verdict) throw new Error(data.error || 'The URL could not be analyzed.')
         formattedResult = formatUrlAnalysis(data)
-=======
-        if (!data.success || !data.analysis) throw new Error(data.error || 'The URL could not be checked.')
-        formattedResult = formatAnalysis(data.analysis, { urlhaus: data.urlhaus })
-        if (data.urlhaus?.status === 'listed') {
-          formattedResult.verdict = 'Urgent: Malicious URL Detected'
-          formattedResult.level = 'high'
-          formattedResult.summary = 'URLhaus lists this exact URL as a malware-distribution link. It may serve malicious files or code that can infect your device if opened or run. Do not visit it or download anything from it.'
-        } else if (data.urlhaus?.status === 'not_listed') {
-          formattedResult.summary = `${formattedResult.summary} URLhaus did not list this exact URL; that does not prove it is safe.`
-        } else if (data.urlhaus?.status === 'unavailable') {
-          formattedResult.summary = `${formattedResult.summary} ${data.urlhaus.message}`
-        }
->>>>>>> Stashed changes
       } else {
         formattedResult = formatAnalysis(data)
       }
@@ -233,23 +190,17 @@ function App() {
 
   async function handleSubmit(event) {
     event.preventDefault()
+    if (event.nativeEvent.submitter?.dataset.recoverySubmit === 'true') {
+      await requestRecoverySteps()
+      return
+    }
     setRecoveryAction('')
     await analyzeInput()
   }
 
-  function requestRecoverySteps(event) {
-    event.preventDefault()
-    event.stopPropagation()
+  async function requestRecoverySteps() {
     if (!recoveryAction || isAnalyzing) return
-
-    const recoverySteps = recoveryStepsByAction[recoveryAction]
-    if (!recoverySteps) return
-
-    setResult((currentResult) => currentResult
-      ? { ...currentResult, recoverySteps }
-      : currentResult)
-    setIsRecoveryPopupOpen(true)
-    setShowRecoveryOptions(false)
+    await analyzeInput(recoveryAction)
   }
 
   const selectedType = inputTypes.find((type) => type.value === inputType)
@@ -290,11 +241,7 @@ function App() {
           </div>
           <div className="flex max-w-xs items-center gap-3 rounded-xl border border-[#1d3c46] bg-[#0c202a] px-4 py-3 text-[12px] leading-5 text-[#9ab0aa]">
             <ShieldIcon className="h-5 w-5 shrink-0 text-[#52dfcd]" />
-<<<<<<< Updated upstream
             <span><strong className="font-semibold text-[#d8e9e3]">Your content stays on your backend by default.</strong> Submissions are not stored. If URL intelligence providers are enabled, the submitted URL, including its path and query, is sent to those providers.</span>
-=======
-            <span><strong className="font-semibold text-[#d8e9e3]">Your content stays private.</strong> Text and screenshots are checked by your backend. URL checks are also sent to URLhaus.</span>
->>>>>>> Stashed changes
           </div>
         </section>
 
@@ -380,7 +327,7 @@ function App() {
                         placeholder="https://example.com/login"
                         className="h-14 w-full rounded-xl border border-[#284550] bg-[#091923] px-4 text-sm text-[#e0eeea] outline-none transition placeholder:text-[#6f8981] focus:border-[#43d9c6] focus:ring-4 focus:ring-[#43d9c6]/15"
                       />
-                      <p className="mt-3 text-[11px] leading-5 text-[#8ba49a]">We check the exact address against URLhaus. This app does not open the link or inspect the website.</p>
+                      <p className="mt-3 text-[11px] leading-5 text-[#8ba49a]">We check the address text only. This demo does not open the link or inspect the website.</p>
                     </>
                   ) : (
                     <textarea
@@ -457,28 +404,12 @@ function App() {
                     <p className="mt-1.5 text-[13px] leading-5 text-[#b5c9c0]">{result.summary}</p>
                   </div>
 
-<<<<<<< Updated upstream
                   {result.url && (
                     <div className="mt-5 rounded-lg border border-[#24404a] bg-[#071720] p-3 text-xs leading-5 text-[#c7d9d1]">
                       <p className="break-all font-semibold">{result.url.normalized}</p>
                       <p className="mt-1">Registered domain: {result.url.registrableDomain} · {result.technical?.usesHttps ? 'HTTPS' : 'HTTP'}</p>
                       <p>Threat sources checked: {result.threatIntelligence?.sourcesChecked?.join(', ') || (result.threatIntelligence?.providers?.length ? 'None responded successfully' : 'None configured')}</p>
                       {result.threatIntelligence?.matches?.length > 0 && <p className="mt-1 text-[#ff9877]">Database matches: {result.threatIntelligence.matches.map((match) => `${match.source} (${match.category})`).join(', ')}</p>}
-=======
-                  {result.urlhaus && (
-                    <div className={`mt-4 rounded-lg border px-3 py-3 text-xs leading-5 ${result.urlhaus.status === 'listed' ? 'border-[#793d43] bg-[#211b23] text-[#efc4ba]' : result.urlhaus.status === 'unavailable' ? 'border-[#806739] bg-[#25251f] text-[#e1d4aa]' : 'border-[#284550] bg-[#0b202a] text-[#a8c4bb]'}`}>
-                      <p className="font-semibold">
-                        {result.urlhaus.status === 'listed' ? 'URLhaus database match' : result.urlhaus.status === 'not_listed' ? 'No exact URLhaus match' : 'URLhaus lookup unavailable'}
-                      </p>
-                      {result.urlhaus.status === 'listed' && (
-                        <>
-                          <p className="mt-1">Threat: {result.urlhaus.threat.replaceAll('_', ' ')} · Status: {result.urlhaus.urlStatus}</p>
-                          {result.urlhaus.dateAdded && <p>Added: {result.urlhaus.dateAdded}</p>}
-                          {result.urlhaus.referenceUrl && <a href={result.urlhaus.referenceUrl} target="_blank" rel="noreferrer" className="mt-1 inline-block font-semibold underline underline-offset-2">View URLhaus record</a>}
-                        </>
-                      )}
-                      {result.urlhaus.status === 'unavailable' && <p className="mt-1">{result.urlhaus.message}</p>}
->>>>>>> Stashed changes
                     </div>
                   )}
 
@@ -566,8 +497,9 @@ function App() {
                             {recoveryActions.map((action) => <option key={action.value} value={action.value}>{action.label}</option>)}
                           </select>
                           <button
-                            type="button"
-                            onClick={requestRecoverySteps}
+                            type="submit"
+                            data-recovery-submit="true"
+                            formNoValidate
                             disabled={!recoveryAction || isAnalyzing}
                             className="mt-3 rounded-lg bg-[#ffd05c] px-4 py-2.5 text-xs font-bold text-[#201a0a] transition hover:bg-[#ffe39b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ffd05c] disabled:cursor-not-allowed disabled:bg-[#5a5543] disabled:text-[#b9b19a]"
                           >
@@ -609,7 +541,7 @@ function App() {
           </div>
 
           <div className="flex flex-col gap-4 border-t border-[#1b3945] bg-[#0d1e28] px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-8">
-            <p className="max-w-md text-[11px] leading-5 text-[#8da59a]">Avoid entering passwords, one-time codes, or payment information. Text and images go to your backend; URLs are also checked by URLhaus.</p>
+            <p className="max-w-md text-[11px] leading-5 text-[#8da59a]">Avoid entering passwords, one-time codes, or payment information. Content is sent to your backend for analysis and is not stored.</p>
             <button
               type="submit"
               disabled={!canSubmit || isAnalyzing}
