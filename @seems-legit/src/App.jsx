@@ -7,6 +7,14 @@ const inputTypes = [
   { value: 'url', label: 'URL', description: 'Paste a suspicious website address' },
 ]
 
+const recoveryActions = [
+  { value: 'clicked_link', label: 'I clicked a link' },
+  { value: 'shared_password', label: 'I shared a password' },
+  { value: 'shared_code', label: 'I shared a sign-in or verification code' },
+  { value: 'shared_payment', label: 'I sent money or shared payment details' },
+  { value: 'shared_personal_info', label: 'I shared other personal information' },
+]
+
 const API_BASE_URL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
 
 function ShieldIcon({ className = 'h-5 w-5' }) {
@@ -67,12 +75,16 @@ function App() {
   const [attachment, setAttachment] = useState(null)
   const [result, setResult] = useState(null)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
+  const [showRecoveryOptions, setShowRecoveryOptions] = useState(false)
+  const [recoveryAction, setRecoveryAction] = useState('')
 
   function changeInputType(event) {
     setInputType(event.target.value)
     setMessage('')
     setAttachment(null)
     setResult(null)
+    setShowRecoveryOptions(false)
+    setRecoveryAction('')
   }
 
   async function handleFile(event) {
@@ -86,8 +98,7 @@ function App() {
     }
   }
 
-  async function handleSubmit(event) {
-    event.preventDefault()
+  async function analyzeInput(interaction = 'none') {
     if (isAnalyzing) return
 
     setIsAnalyzing(true)
@@ -99,6 +110,7 @@ function App() {
         if (!attachment) throw new Error('Choose a screenshot before submitting.')
         const formData = new FormData()
         formData.append('image', attachment)
+        formData.append('interaction', interaction)
 
         response = await fetch(`${API_BASE_URL}/api/analyze-screenshot`, {
           method: 'POST',
@@ -108,7 +120,7 @@ function App() {
         response = await fetch(`${API_BASE_URL}/api/analyze`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: message.trim() }),
+          body: JSON.stringify({ message: message.trim(), interaction }),
         })
       }
 
@@ -124,6 +136,7 @@ function App() {
       } else {
         setResult(formatAnalysis(data))
       }
+      setShowRecoveryOptions(false)
     } catch (error) {
       setResult({
         verdict: 'Analysis unavailable',
@@ -137,6 +150,17 @@ function App() {
     } finally {
       setIsAnalyzing(false)
     }
+  }
+
+  async function handleSubmit(event) {
+    event.preventDefault()
+    setRecoveryAction('')
+    await analyzeInput()
+  }
+
+  async function requestRecoverySteps() {
+    if (!recoveryAction || isAnalyzing) return
+    await analyzeInput(recoveryAction)
   }
 
   const selectedType = inputTypes.find((type) => type.value === inputType)
@@ -374,6 +398,44 @@ function App() {
                       {result.nextSteps.map((step) => <li key={step} className="text-[13px] leading-5 text-[#b5c9c0]">{step}</li>)}
                     </ul>
                   </div>
+
+                  {(result.level === 'high' || result.level === 'caution' || result.formatMatches?.length > 0) && !result.recoverySteps?.length && (
+                    <div className="mt-5 rounded-xl border border-[#5a4140] bg-[#211f23] p-4">
+                      <button
+                        type="button"
+                        aria-expanded={showRecoveryOptions}
+                        aria-controls="recovery-options"
+                        onClick={() => setShowRecoveryOptions((isOpen) => !isOpen)}
+                        className="text-left text-sm font-semibold text-[#ffd0a6] underline decoration-[#8d6254] underline-offset-4 hover:text-[#fff0df] focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-[#ffd05c]"
+                      >
+                        Already interacted with it? Get recovery steps
+                      </button>
+                      {showRecoveryOptions && (
+                        <div id="recovery-options" className="mt-4">
+                          <label htmlFor="recovery-action" className="block text-xs font-semibold text-[#d5c5b5]">
+                            What did you do?
+                          </label>
+                          <select
+                            id="recovery-action"
+                            value={recoveryAction}
+                            onChange={(event) => setRecoveryAction(event.target.value)}
+                            className="mt-2 w-full rounded-lg border border-[#5a4140] bg-[#111b22] px-3 py-2.5 text-sm text-[#e8f3f1] outline-none focus:border-[#ffd05c] focus:ring-4 focus:ring-[#ffd05c]/15"
+                          >
+                            <option value="">Choose what happened</option>
+                            {recoveryActions.map((action) => <option key={action.value} value={action.value}>{action.label}</option>)}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={requestRecoverySteps}
+                            disabled={!recoveryAction || isAnalyzing}
+                            className="mt-3 rounded-lg bg-[#ffd05c] px-4 py-2.5 text-xs font-bold text-[#201a0a] transition hover:bg-[#ffe39b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ffd05c] disabled:cursor-not-allowed disabled:bg-[#5a5543] disabled:text-[#b9b19a]"
+                          >
+                            Show my recovery steps
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {result.disclaimer && <p className="mt-4 text-[11px] leading-5 text-[#8da59a]">{result.disclaimer}</p>}
 
