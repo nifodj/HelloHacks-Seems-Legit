@@ -11,7 +11,7 @@ npm install
 npm start
 ```
 
-The server listens at `http://localhost:3001`. Use `npm run dev` while changing code; Node restarts the server when a file changes.
+The server listens at `http://localhost:3001`. Use `npm run dev` while changing code; restart it after editing backend files.
 
 ## API
 

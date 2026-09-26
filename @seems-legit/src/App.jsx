@@ -80,7 +80,9 @@ function formatUrlAnalysis(analysis) {
     level,
     summary: analysis.recommendation || 'Review the URL signals before proceeding.',
     signals: (analysis.signals || []).map((item) => item.description),
+    formatMatches: [],
     nextSteps: analysis.limitations || [],
+    recoverySteps: [],
   }
 }
 
@@ -176,7 +178,9 @@ function App() {
           ? `Could not reach the backend${API_BASE_URL ? ` at ${API_BASE_URL}` : ''}. Make sure it is running.`
           : error.message,
         signals: [],
+        formatMatches: [],
         nextSteps: ['Check the backend server and try again.'],
+        recoverySteps: [],
       })
       setIsRecoveryPopupOpen(false)
     } finally {
@@ -386,7 +390,7 @@ function App() {
                 <div className="flex flex-1 flex-col items-center justify-center py-12 text-center">
                   <span className="mb-4 h-9 w-9 animate-spin rounded-full border-2 border-[#dbe8dd] border-t-[#4e8764]" />
                   <p className="text-sm font-semibold text-[#dbeae3]">Checking for common warning signs</p>
-                  <p className="mt-1 text-xs text-[#8da59a]">{inputType === 'screenshot' ? 'Uploading screenshot and extracting text with OCR.' : 'Sending your message to the backend analyzer.'}</p>
+                  <p className="mt-1 text-xs text-[#8da59a]">{inputType === 'screenshot' ? 'Uploading screenshot and extracting text with OCR.' : inputType === 'url' ? 'Checking the address with the backend analyzer.' : 'Sending your message to the backend analyzer.'}</p>
                 </div>
               ) : result ? (
                 <div className="flex flex-1 flex-col animate-[fade-in_300ms_ease-out]">

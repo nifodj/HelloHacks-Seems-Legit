@@ -256,7 +256,7 @@ export function createAppServer() {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  createAppServer().listen(PORT, () => {
+  createAppServer().listen(PORT, '127.0.0.1', () => {
     console.log(`Seems Legit backend listening at http://localhost:${PORT}`)
   })
 }
