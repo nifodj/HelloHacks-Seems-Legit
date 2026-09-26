@@ -4,6 +4,7 @@ const inputTypes = [
   { value: 'email', label: 'Email', description: 'Paste or upload an email' },
   { value: 'screenshot', label: 'Screenshot', description: 'Upload an image' },
   { value: 'transcript', label: 'Phone transcript', description: 'Paste a call transcript' },
+  { value: 'url', label: 'URL', description: 'Paste a suspicious website address' },
 ]
 
 const indicators = [
@@ -175,7 +176,7 @@ function App() {
               Something feel off? <span className="text-[#55e4d1]">Let’s look closer.</span>
             </h1>
             <p className="mt-4 max-w-xl text-[15px] leading-7 text-[#9ab0aa]">
-              Check a suspicious email, screenshot, or phone call transcript for common scam signals.
+              Check a suspicious email, screenshot, phone call transcript, or website URL for common scam signals.
             </p>
           </div>
           <div className="flex max-w-xs items-center gap-3 rounded-xl border border-[#1d3c46] bg-[#0c202a] px-4 py-3 text-[12px] leading-5 text-[#9ab0aa]">
@@ -238,7 +239,7 @@ function App() {
                 <>
                   <div className="mb-2 flex items-center justify-between gap-3">
                     <label htmlFor="message" className="text-xs font-semibold text-[#b1c7be]">
-                      {inputType === 'email' ? 'Email content' : 'Call transcript'}
+                      {inputType === 'email' ? 'Email content' : inputType === 'url' ? 'Website URL' : 'Call transcript'}
                     </label>
                     {inputType === 'email' && (
                       <label htmlFor="email-file" className="inline-flex cursor-pointer items-center gap-1.5 text-[11px] font-semibold text-[#57d6c5] transition hover:text-[#a4f58c]">
@@ -248,17 +249,39 @@ function App() {
                       </label>
                     )}
                   </div>
-                  <textarea
-                    id="message"
-                    value={message}
-                    onChange={(event) => { setMessage(event.target.value); setResult(null) }}
-                    maxLength={10000}
-                    placeholder={inputType === 'email' ? 'Paste the email text here. You can include the sender, subject, and message body...' : 'Add the words you remember from the call. Include what they asked you to do...'}
-                    className="min-h-[238px] w-full resize-y rounded-xl border border-[#284550] bg-[#091923] p-4 text-sm leading-6 text-[#e0eeea] outline-none transition placeholder:text-[#6f8981] focus:border-[#43d9c6] focus:ring-4 focus:ring-[#43d9c6]/15"
-                  />
+                  {inputType === 'url' ? (
+                    <>
+                      <input
+                        id="message"
+                        type="url"
+                        value={message}
+                        onChange={(event) => { setMessage(event.target.value); setResult(null) }}
+                        maxLength={2048}
+                        required
+                        pattern="https?://.+"
+                        title="Enter a URL starting with http:// or https://"
+                        inputMode="url"
+                        autoCapitalize="none"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        placeholder="https://example.com/login"
+                        className="h-14 w-full rounded-xl border border-[#284550] bg-[#091923] px-4 text-sm text-[#e0eeea] outline-none transition placeholder:text-[#6f8981] focus:border-[#43d9c6] focus:ring-4 focus:ring-[#43d9c6]/15"
+                      />
+                      <p className="mt-3 text-[11px] leading-5 text-[#8ba49a]">We check the address text only. This demo does not open the link or inspect the website.</p>
+                    </>
+                  ) : (
+                    <textarea
+                      id="message"
+                      value={message}
+                      onChange={(event) => { setMessage(event.target.value); setResult(null) }}
+                      maxLength={10000}
+                      placeholder={inputType === 'email' ? 'Paste the email text here. You can include the sender, subject, and message body...' : 'Add the words you remember from the call. Include what they asked you to do...'}
+                      className="min-h-[238px] w-full resize-y rounded-xl border border-[#284550] bg-[#091923] p-4 text-sm leading-6 text-[#e0eeea] outline-none transition placeholder:text-[#6f8981] focus:border-[#43d9c6] focus:ring-4 focus:ring-[#43d9c6]/15"
+                    />
+                  )}
                   <div className="mt-2 flex items-center justify-between text-[11px] text-[#829c92]">
                     <span>{selectedType?.description}</span>
-                    <span>{message.length.toLocaleString()} / 10,000</span>
+                    <span>{message.length.toLocaleString()} / {inputType === 'url' ? '2,048' : '10,000'}</span>
                   </div>
                   {attachment && inputType === 'email' && (
                     <div className="mt-3 flex items-center justify-between gap-3 rounded-lg bg-[#122a32] px-3 py-2 text-xs text-[#b3c9c0]">
