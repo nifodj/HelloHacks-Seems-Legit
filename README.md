@@ -78,13 +78,19 @@ Keep verdicts and confidence calibrated; when the evidence is unclear, say so in
 
 ## Local Setup
 
-Add the actual commands once the team chooses its stack.
+Run the frontend and backend in separate terminals from the repository root.
 
-```text
-Prerequisites: TBD
-Install:       TBD
-Run:           TBD
-Test:          TBD
+```powershell
+# Terminal 1: frontend
+Set-Location .\@seems-legit
+npm install
+npm run dev
+```
+
+```powershell
+# Terminal 2: backend
+Set-Location .\backend
+npm run dev
 ```
 
 ## Configuration

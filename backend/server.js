@@ -30,19 +30,121 @@ async function readRequestBody(request) {
   return JSON.parse(body)
 }
 
-// Look for common warning signs and return a cautious, easy-to-display result.
+// Find likely misspellings in common words used in account and payment requests.
+// This is intentionally a small heuristic list, not a general spell checker.
+function findTypos(text) {
+  const commonTypos = new Map([
+    [' recieve ', 'receive'], [' recive ', 'receive'], [' adress ', 'address'],
+    [' verfy ', 'verify'], [' varify ', 'verify'], [' acccount ', 'account'],
+    [' pasword ', 'password'], [' securty ', 'security'], [' succesful ', 'successful'],
+    [' succesfully ', 'successfully'], [' tranfer ', 'transfer'], [' beneift ', 'benefit'],
+    [' custo mer ', 'customer'], [' cliam ', 'claim'], [' expir ', 'expire'],
+  ])
+  const padded = ` ${text.toLowerCase().replace(/[^a-z0-9]+/g, ' ')} `
+  const found = []
+  for (const [typo, correction] of commonTypos) {
+    if (padded.includes(typo)) found.push(`The word '${typo.trim()}' appears misspelled (usually '${correction}').`)
+  }
+  return found
+}
+
+function inspectLinks(message) {
+  const links = message.match(/(?:https?:\/\/|www\.)[^\s<>"']+/gi) || []
+  const findings = []
+  for (const raw of links) {
+    let url
+    try { url = new URL(raw.startsWith('www.') ? `http://${raw}` : raw) } catch { continue }
+    const host = url.hostname.toLowerCase().replace(/^www\./, '')
+    if (url.username || url.password) findings.push('A link hides extra credentials before its domain.')
+    if (/^(\d{1,3}\.){3}\d{1,3}$/.test(host)) findings.push('A link uses a numeric IP address instead of a recognizable domain.')
+    if (host.startsWith('xn--') || host.split('.').some(part => part.startsWith('xn--'))) {
+      findings.push('A link uses an encoded domain name that can disguise its appearance.')
+    }
+    if (/\.(zip|mov|click|top|work)$/i.test(host)) findings.push('A link uses a domain ending often abused in deceptive messages.')
+  }
+  if (links.length > 0 && /\b(sign in|log ?in|verify your account|confirm your password)\b/i.test(message)) {
+    findings.push('The message links to a sign-in or account verification request.')
+  }
+  return findings
+}
+
+function inspectSender(message) {
+  const findings = []
+  const match = message.match(/\b(?:from|reply-to|sender)\s*:?\s*[^\n<]*<([^>]+)>/i)
+    || message.match(/\b(?:from|reply-to|sender)\s*:?\s*([\w.+-]+@[\w.-]+\.[a-z]{2,})/i)
+  if (!match) return findings
+  const address = match[1].trim()
+  const email = address.match(/^([^@\s]+)@([^@\s]+)$/)
+  if (!email || !/^[a-z0-9.-]+\.[a-z]{2,}$/i.test(email[2]) || email[2].includes('..')) {
+    findings.push('The sender address appears malformed.')
+    return findings
+  }
+  const domain = email[2].toLowerCase()
+  const brands = ['paypal', 'microsoft', 'apple', 'amazon', 'google', 'netflix', 'bankofamerica', 'chase']
+  const mentionedBrand = brands.find(brand => new RegExp(`\\b${brand}\\b`, 'i').test(message))
+  if (mentionedBrand) {
+    const labels = domain.split('.')
+    const exactOfficialDomain = domain === `${mentionedBrand}.com` || domain.endsWith(`.${mentionedBrand}.com`)
+    const brandLikeLabel = labels.some(label => {
+      if (label === mentionedBrand) return true
+      if (Math.abs(label.length - mentionedBrand.length) > 1) return false
+      // Detect a single-character typo, such as “paypai” in place of “paypal”.
+      let edits = 0
+      let left = 0
+      let right = 0
+      while (left < label.length && right < mentionedBrand.length) {
+        if (label[left] === mentionedBrand[right]) { left++; right++; continue }
+        if (++edits > 1) return false
+        if (label.length > mentionedBrand.length) left++
+        else if (label.length < mentionedBrand.length) right++
+        else { left++; right++ }
+      }
+      if (left < label.length || right < mentionedBrand.length) edits++
+      return edits <= 1
+    })
+    if (!exactOfficialDomain && brandLikeLabel) {
+      findings.push(`The sender domain resembles ${mentionedBrand} but is not an official ${mentionedBrand} domain.`)
+    }
+  }
+  return findings
+}
+
+// Look for multiple independent warning signs and return a cautious result.
 function analyzeMessage(message) {
   const signals = []
   const text = message.toLowerCase()
   
+  let verdict = 'likely legitimate'
+  let confidence = 'low'
+  let nextSteps = ['If the message is unexpected, contact the sender through a phone number or website you already trust.']
+
   if (Buffer.byteLength(text, 'utf8') === 0) {
     signals.push('The message is empty.')
+    verdict = 'N/A'
+    confidence = 'N/A'
+    nextSteps = [
+      'The message is empty. Please provide a message to analyze.',
+    ]
   }
 
-  if (Buffer.byteLength(text, 'utf8') < 30) {
+  if (Buffer.byteLength(text, 'utf8') < 50) {
     signals.push('The message is too short to analyze effectively.')
+    verdict = 'N/A'
+    confidence = 'N/A'
+    nextSteps = [
+      'The message is too short to analyze effectively. Please provide more details.',
+    ]
   }
 
+  if (verdict === 'N/A') return { verdict, confidence, signals, nextSteps, disclaimer }
+
+  const typoSignals = findTypos(text)
+  const linkSignals = inspectLinks(message)
+  const senderSignals = inspectSender(message)
+  signals.push(...typoSignals, ...linkSignals, ...senderSignals)
+
+  // Keep wording observations in the summary, but never use them to decide
+  // whether the message is suspicious or scam-like.
   if (/urgent|immediately|act now|expires today|within 24 hours/.test(text)) {
     signals.push('The message pressures you to act quickly.')
   }
@@ -53,21 +155,20 @@ function analyzeMessage(message) {
     signals.push('The message mentions an unusual or hard-to-reverse payment method.')
   }
   if (/click here|sign in|login|verify your account/.test(text) && /https?:\/\//.test(text)) {
-    signals.push('The message combines a link with a request to sign in or verify an account.')
+    if (!signals.some(signal => signal.includes('sign-in or account verification'))) {
+      signals.push('The message combines a link with a request to sign in or verify an account.')
+    }
   }
 
-  let verdict = 'likely legitimate'
-  let confidence = 'low'
-  let nextSteps = ['If the message is unexpected, contact the sender through a phone number or website you already trust.']
-
-  if (signals.length >= 2) {
+  const concreteSignals = typoSignals.length + linkSignals.length + senderSignals.length
+  if (concreteSignals >= 2) {
     verdict = 'likely scam'
     confidence = 'medium'
     nextSteps = [
       'Do not click links or reply with personal information.',
       'Contact the organization using its official website or phone number.',
     ]
-  } else if (signals.length === 1) {
+  } else if (concreteSignals >= 1) {
     verdict = 'suspicious'
     confidence = 'low'
     nextSteps = [
