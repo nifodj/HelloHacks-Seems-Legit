@@ -1,46 +1,69 @@
-# Seems Legit backend template
+# Seems Legit backend
 
-This folder contains a tiny Node.js web server for the scam-message checker. It has no extra packages to install. It accepts a message at `POST /api/analyze` and returns a verdict, warning signs, and next steps as JSON.
+This small Node.js server accepts a message, checks it for common scam warning signs, and returns a cautious result. It does not save messages or call an AI service. Its checks are simple rules, so they can miss scams or flag ordinary messages.
 
-## Start it
+## Run it
 
-1. Install Node.js if it is not already installed.
-2. Open a terminal in this `backend` folder.
-3. Run `npm run dev` (or `npm start`).
-4. The server will print `http://localhost:3001` when it is ready.
+You need Node.js installed. From this folder, run:
 
-The React/Vite website usually runs at `http://localhost:5173`. The backend allows requests from that local address.
+```sh
+npm start
+```
 
-## Try a request
+The server listens at `http://localhost:3001`. Use `npm run dev` while changing code; Node restarts the server when a file changes.
 
-Send a POST request to `http://localhost:3001/api/analyze` with this JSON body:
+## API
+
+Send a `POST` request to `http://localhost:3001/api/analyze` with JSON:
 
 ```json
 {
-  "message": "Urgent! Click here to verify your account with your password."
+  "message": "Urgent: verify your account at https://example.invalid"
 }
 ```
 
-The response has this shape:
+Optional `interaction` tells the backend what the user did. Choose one value:
 
-```json
-{
-  "verdict": "likely scam",
-  "confidence": "medium",
-  "signals": ["..."],
-  "nextSteps": ["..."],
-  "disclaimer": "..."
-}
+- `none` (the default)
+- `clicked_link`
+- `shared_password`
+- `shared_code`
+- `shared_payment`
+- `shared_personal_info`
+
+For example, if the person entered a password after clicking, send `"interaction": "shared_password"`. The response will include `recoverySteps`. If no action happened, omit the field or use `none`.
+
+The response includes:
+
+- `verdict`: `likely legitimate`, `suspicious`, or `likely scam`
+- `confidence`: a cautious `low` or `medium` estimate, not a guarantee
+- `signals`: the reasons the rules matched
+- `nextSteps`: what to do about the message
+- `recoverySteps`: action-specific help, or an empty list
+- `privacyReminder` and `disclaimer`: safety reminders to show in the app
+
+An empty message gets HTTP `400`, a message over the request limit gets `413`, and other paths get `404`. The server accepts browser requests from the local frontend at `http://localhost:5173`.
+
+## Try it
+
+With the server running, send a sample request from another terminal:
+
+```sh
+curl -X POST http://localhost:3001/api/analyze \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"Urgent! Verify your account with your password at https://example.invalid","interaction":"shared_password"}'
 ```
 
-## What each function does
+Use fabricated examples only. Do not submit passwords, one-time codes, payment details, or other secrets. The server does not store messages, but the frontend should also remind users before they paste one.
 
-- **`sendJson(response, statusCode, data)`**: Sends information back to the webpage in JSON format. The status number tells the webpage whether the request worked (200), had a problem (400/413), or used an unknown address (404).
-- **`readRequestBody(request)`**: Collects the information the webpage sent. It limits the request size and turns the JSON text into data the server can use.
-- **`analyzeMessage(message)`**: Checks the message for a few known warning phrases, chooses a cautious verdict, and creates practical next steps. This is a simple demonstration rule set, not an AI or proof that a message is safe.
-- **`handleRequest(request, response)`**: The traffic director. It accepts the webpage's connection check, verifies the address and request format, calls the analyzer, and returns helpful errors when needed.
-- **`createServer(...).listen(...)`**: Turns the server on and keeps it ready for requests. `PORT` can change the port; it defaults to 3001.
+## Connecting a machine-learning service later
 
-## Important limits
+The current analyzer is `analyzeMessage` in `server.js`. A future version can call a text-classification service from that function (or from a new helper it calls). Keep the service call on the backend so its API key stays private:
 
-This starter does not save messages or call an AI service. Its phrase checks can miss scams and can flag harmless messages. A result of “likely legitimate” does not mean a message is safe. Do not paste passwords, one-time codes, payment details, or other secrets into the demo.
+1. Choose a provider and a model that supports text classification or structured JSON output.
+2. Store the key in an environment variable, such as `SCAM_MODEL_API_KEY`; never put it in React/browser code or commit it to Git.
+3. Send only the pasted message and ask for a small structured result: warning signs and a suggested risk category. Do not send it unless your privacy notice tells users about the external service.
+4. Validate the service response and combine its suggestions with the existing rule checks. Treat the model as another fallible signal, not proof.
+5. If the key is missing, the service is unavailable, or its response is invalid, return a useful error or fall back to the local rules.
+
+Before adding a provider, decide what its privacy and data-retention terms mean for messages users submit. The current version makes no external requests.
