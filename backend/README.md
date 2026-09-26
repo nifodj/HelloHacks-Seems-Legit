@@ -4,9 +4,10 @@ This small Node.js server accepts a message, checks it for common scam warning s
 
 ## Run it
 
-You need Node.js installed. From this folder, run:
+You need Node.js 22 or later. From this folder, install dependencies and start the server:
 
 ```sh
+npm install
 npm start
 ```
 
@@ -55,6 +56,58 @@ curl -X POST http://localhost:3001/api/analyze \
 ```
 
 Use fabricated examples only. Do not submit passwords, one-time codes, payment details, or other secrets. The server does not store messages, but the frontend should also remind users before they paste one.
+
+## Screenshot analysis
+
+The screenshot endpoint accepts one `image` file and an optional `interaction` field as `multipart/form-data`. Supported image types are JPEG, PNG, and WebP. The actual image signature is checked; the supplied filename and MIME type are not trusted. Uploads are limited to 5 MB and processed in memory.
+
+OCR uses Tesseract.js locally in the backend. The screenshot is not sent to an OCR provider. The first OCR run downloads the English language model if it is not cached; the model is cached locally and ignored by Git. OCR can misread text, and the rule-based analyzer can miss scams or flag legitimate messages.
+
+Example with `curl`:
+
+```sh
+curl -X POST http://localhost:3001/api/analyze-screenshot \
+  -F 'image=@/path/to/screenshot.png' \
+  -F 'interaction=clicked_link'
+```
+
+Omit `interaction` if no recovery guidance is needed. Do not set the multipart `Content-Type` header manually when using browser `FormData`; the browser must add its boundary:
+
+```js
+const formData = new FormData()
+formData.append('image', file)
+formData.append('interaction', 'none')
+
+const response = await fetch('http://localhost:3001/api/analyze-screenshot', {
+  method: 'POST',
+  body: formData,
+})
+const result = await response.json()
+```
+
+Successful responses contain `extractedText`, `analysis` (the existing analyzer result, including recovery steps and disclaimers), and OCR metadata. If little text is recognized, `ocr.limitedText` is `true` and `ocr.warning` explains the uncertainty. No readable text returns `422` rather than a legitimate verdict.
+
+| Test case | Expected response |
+| --- | --- |
+| Phishing screenshot with an urgent request to verify an account using a password and a link | `200`; extracted text and the analyzer's `likely scam` assessment |
+| Legitimate service notice with no common warning phrases | `200`; extracted text and typically `likely legitimate` from the basic rules |
+| Urgent gift-card or wire-payment request | `200`; extracted text and typically `likely scam` from the payment and urgency signals |
+| Screenshot with no readable text | `422`; readable-text error, with no scam assessment |
+| Non-image bytes named `something.png` | `415`; unsupported image type, based on the bytes rather than the filename |
+| Image larger than 5 MB | `413`; upload-size error |
+| Truncated/corrupt image with a recognizable image signature | `422`; invalid/readable-image error |
+| Very short readable text, such as `Help` | `200`; analysis is still returned, marked `suspicious` with low confidence and an OCR warning |
+| OCR worker failure | `500`; generic OCR error without internal details |
+
+Run the deterministic route tests with:
+
+```sh
+npm test
+```
+
+The route tests use generated images and a controlled OCR result so they run quickly and reproducibly. The OCR-failure case injects a simulated worker failure. To exercise real OCR, start the server and use `curl` with a real screenshot fixture as shown above.
+
+Other expected error statuses: malformed multipart or missing `image` returns `400`; an unsupported request content type returns `415`; and internal analysis failures return a generic `500` response.
 
 ## Connecting a machine-learning service later
 
