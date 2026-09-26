@@ -162,6 +162,10 @@ function App() {
 
   async function handleSubmit(event) {
     event.preventDefault()
+    if (event.nativeEvent.submitter?.dataset.recoverySubmit === 'true') {
+      await requestRecoverySteps()
+      return
+    }
     setRecoveryAction('')
     await analyzeInput()
   }
@@ -455,8 +459,9 @@ function App() {
                             {recoveryActions.map((action) => <option key={action.value} value={action.value}>{action.label}</option>)}
                           </select>
                           <button
-                            type="button"
-                            onClick={requestRecoverySteps}
+                            type="submit"
+                            data-recovery-submit="true"
+                            formNoValidate
                             disabled={!recoveryAction || isAnalyzing}
                             className="mt-3 rounded-lg bg-[#ffd05c] px-4 py-2.5 text-xs font-bold text-[#201a0a] transition hover:bg-[#ffe39b] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#ffd05c] disabled:cursor-not-allowed disabled:bg-[#5a5543] disabled:text-[#b9b19a]"
                           >
