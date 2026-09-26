@@ -7,6 +7,8 @@ const inputTypes = [
   { value: 'url', label: 'URL', description: 'Paste a suspicious website address' },
 ]
 
+const API_BASE_URL = (import.meta.env.VITE_API_URL || 'http://localhost:3001').replace(/\/+$/, '')
+
 const indicators = [
   {
     label: 'Urgent or threatening language',
@@ -126,21 +128,60 @@ function App() {
     setIsAnalyzing(true)
     setResult(null)
 
-    await new Promise((resolve) => window.setTimeout(resolve, 550))
+    try {
+      if (inputType === 'screenshot') {
+        const formData = new FormData()
+        formData.append('image', attachment)
 
-    if (inputType === 'screenshot') {
+        const response = await fetch(`${API_BASE_URL}/api/analyze-screenshot`, {
+          method: 'POST',
+          body: formData,
+        })
+        const data = await response.json().catch(() => null)
+
+        if (!data) {
+          throw new Error('The backend returned an unreadable response.')
+        }
+        if (!response.ok || !data.success) {
+          throw new Error(data.error || 'The screenshot could not be analyzed.')
+        }
+
+        const analysis = data.analysis
+        const level = analysis.verdict === 'likely scam'
+          ? 'high'
+          : analysis.verdict === 'suspicious'
+            ? 'caution'
+            : 'clear'
+        const summary = level === 'high'
+          ? 'The extracted text matched multiple scam warning signs.'
+          : level === 'caution'
+            ? 'The extracted text contains a warning sign or too little information for a confident check.'
+            : 'No common warning signs were found in the extracted text. This does not prove the message is safe.'
+
+        setResult({
+          ...analysis,
+          level,
+          summary,
+          extractedText: data.extractedText,
+          ocrWarning: data.ocr?.warning,
+        })
+      } else {
+        await new Promise((resolve) => window.setTimeout(resolve, 550))
+        setResult(analyzeMessage(message))
+      }
+    } catch (error) {
       setResult({
-        verdict: 'Screenshot received',
-        level: 'pending',
-        summary: 'The image is ready, but text recognition and threat analysis are not connected in this demo.',
+        verdict: 'Screenshot analysis unavailable',
+        level: 'error',
+        summary: error instanceof TypeError
+          ? `Could not reach the backend at ${API_BASE_URL}. Make sure the backend server is running.`
+          : error.message,
         signals: [],
-        nextSteps: ['Connect an OCR service to read the screenshot, then send the extracted text through the scam checks.'],
+        nextSteps: ['Check the backend server and try the screenshot again.'],
       })
-    } else {
-      setResult(analyzeMessage(message))
+    } finally {
+      setIsAnalyzing(false)
     }
-
-    setIsAnalyzing(false)
   }
 
   const selectedType = inputTypes.find((type) => type.value === inputType)
@@ -175,13 +216,13 @@ function App() {
             <h1 className="max-w-xl text-[36px] font-semibold leading-[1.08] tracking-[-0.045em] text-[#eff8f6] sm:text-[48px]">
               Something feel off? <span className="text-[#55e4d1]">Let’s look closer.</span>
             </h1>
-            <p className="mt-4 max-w-xl text-[15px] leading-7 text-[#9ab0aa]">
+              <p className="mt-4 max-w-xl text-[15px] leading-7 text-[#9ab0aa]">
               Check a suspicious email, screenshot, phone call transcript, or website URL for common scam signals.
             </p>
           </div>
           <div className="flex max-w-xs items-center gap-3 rounded-xl border border-[#1d3c46] bg-[#0c202a] px-4 py-3 text-[12px] leading-5 text-[#9ab0aa]">
             <ShieldIcon className="h-5 w-5 shrink-0 text-[#52dfcd]" />
-            <span><strong className="font-semibold text-[#d8e9e3]">Your content stays here.</strong> This demo checks text in your browser.</span>
+            <span><strong className="font-semibold text-[#d8e9e3]">Your content stays private.</strong> Pasted text is checked here; screenshots go to your backend for OCR.</span>
           </div>
         </section>
 
@@ -228,12 +269,12 @@ function App() {
                           <UploadIcon className="h-5 w-5" />
                         </span>
                         <span className="text-sm font-semibold text-[#d8e9e3]">Choose a screenshot to upload</span>
-                        <span className="mt-1.5 text-xs text-[#91aaa0]">PNG, JPG, or WEBP · 10 MB max</span>
+                        <span className="mt-1.5 text-xs text-[#91aaa0]">PNG, JPG, or WEBP · 5 MB max</span>
                       </>
                     )}
                     <input id="screenshot-file" type="file" accept="image/png,image/jpeg,image/webp" className="sr-only" onChange={handleFile} />
                   </label>
-                  <p className="mt-3 text-[11px] leading-5 text-[#8ba49a]">Image text recognition is not connected yet. The screenshot will not be analyzed until OCR is added.</p>
+                  <p className="mt-3 text-[11px] leading-5 text-[#8ba49a]">Screenshots are sent to your backend for local OCR and scam analysis. Images are not sent to an OCR provider.</p>
                 </div>
               ) : (
                 <>
@@ -308,18 +349,26 @@ function App() {
                 <div className="flex flex-1 flex-col items-center justify-center py-12 text-center">
                   <span className="mb-4 h-9 w-9 animate-spin rounded-full border-2 border-[#dbe8dd] border-t-[#4e8764]" />
                   <p className="text-sm font-semibold text-[#365240]">Checking for common warning signs</p>
-                  <p className="mt-1 text-xs text-[#829087]">Your content is being checked in this browser.</p>
+                  <p className="mt-1 text-xs text-[#829087]">{inputType === 'screenshot' ? 'Uploading screenshot and extracting text with OCR.' : 'Your text is being checked in this browser.'}</p>
                 </div>
               ) : result ? (
                 <div className="flex flex-1 flex-col animate-[fade-in_300ms_ease-out]">
-                  <div className={`rounded-xl border p-4 ${result.level === 'high' ? 'border-[#793d43] bg-[#321f2a]' : result.level === 'caution' ? 'border-[#806739] bg-[#302b20]' : result.level === 'pending' ? 'border-[#31505a] bg-[#102630]' : 'border-[#35634e] bg-[#142d2b]'}`}>
+                  <div className={`rounded-xl border p-4 ${result.level === 'high' || result.level === 'error' ? 'border-[#793d43] bg-[#321f2a]' : result.level === 'caution' ? 'border-[#806739] bg-[#302b20]' : result.level === 'pending' ? 'border-[#31505a] bg-[#102630]' : 'border-[#35634e] bg-[#142d2b]'}`}>
                     <div className="flex items-center gap-2">
-                      <span className={`h-2 w-2 rounded-full shadow-[0_0_9px_currentColor] ${result.level === 'high' ? 'bg-[#ff7568] text-[#ff7568]' : result.level === 'caution' ? 'bg-[#ffd05c] text-[#ffd05c]' : result.level === 'pending' ? 'bg-[#74a2aa] text-[#74a2aa]' : 'bg-[#9be879] text-[#9be879]'}`} />
-                      <p className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#9ab5aa]">{result.level === 'pending' ? 'Action needed' : result.level === 'clear' ? 'Preliminary check' : 'Warning signs'}</p>
+                      <span className={`h-2 w-2 rounded-full shadow-[0_0_9px_currentColor] ${result.level === 'high' || result.level === 'error' ? 'bg-[#ff7568] text-[#ff7568]' : result.level === 'caution' ? 'bg-[#ffd05c] text-[#ffd05c]' : result.level === 'pending' ? 'bg-[#74a2aa] text-[#74a2aa]' : 'bg-[#9be879] text-[#9be879]'}`} />
+                      <p className="text-[10px] font-bold uppercase tracking-[0.13em] text-[#9ab5aa]">{result.level === 'error' ? 'Backend error' : result.level === 'pending' ? 'Action needed' : result.level === 'clear' ? 'Preliminary check' : 'Warning signs'}</p>
                     </div>
                     <h3 className="mt-2 text-base font-semibold text-[#eef7f3]">{result.verdict}</h3>
                     <p className="mt-1.5 text-[13px] leading-5 text-[#b5c9c0]">{result.summary}</p>
                   </div>
+
+                  {result.extractedText && (
+                    <div className="mt-5">
+                      <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#6ed4c7]">Text recognized</h3>
+                      <pre className="mt-2 max-h-36 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-[#24404a] bg-[#071720] p-3 font-sans text-xs leading-5 text-[#c7d9d1]">{result.extractedText}</pre>
+                      {result.ocrWarning && <p className="mt-2 text-xs leading-5 text-[#ffd05c]">{result.ocrWarning}</p>}
+                    </div>
+                  )}
 
                   <div className="mt-5">
                     <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#6ed4c7]">Signals detected</h3>
@@ -342,6 +391,15 @@ function App() {
                       {result.nextSteps.map((step) => <li key={step} className="text-[13px] leading-5 text-[#b5c9c0]">{step}</li>)}
                     </ul>
                   </div>
+
+                  {result.recoverySteps?.length > 0 && (
+                    <div className="mt-5 border-t border-[#24404a] pt-4">
+                      <h3 className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#ff9877]">If you already acted</h3>
+                      <ul className="mt-2 space-y-2">
+                        {result.recoverySteps.map((step) => <li key={step} className="text-[13px] leading-5 text-[#b5c9c0]">{step}</li>)}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <div className="flex flex-1 flex-col items-center justify-center py-12 text-center">
@@ -362,7 +420,7 @@ function App() {
           </div>
 
           <div className="flex flex-col gap-4 border-t border-[#1b3945] bg-[#0d1e28] px-5 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-8">
-            <p className="max-w-md text-[11px] leading-5 text-[#8da59a]">Avoid entering passwords, one-time codes, or payment information. Your text is checked locally in this prototype.</p>
+            <p className="max-w-md text-[11px] leading-5 text-[#8da59a]">Avoid entering passwords, one-time codes, or payment information. Screenshot files are sent to your backend for OCR.</p>
             <button
               type="submit"
               disabled={!canSubmit || isAnalyzing}
