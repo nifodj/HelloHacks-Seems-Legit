@@ -2,16 +2,16 @@ export const MAX_URL_LENGTH = 2048
 export const RISK_WEIGHTS = {
   knownThreat: 100,
   strongBrandImpersonation: 40,
-  brandInSubdomain: 35,
-  homograph: 35,
-  newDomain: 20,
-  ipAddress: 15,
-  suspiciousPattern: 15,
-  suspiciousKeywords: 5,
-  unusualPort: 5,
-  shortenedUrl: 5,
-  http: 5,
-  excessiveSubdomains: 5,
+  brandInSubdomain: 40,
+  homograph: 40,
+  newDomain: 25,
+  ipAddress: 20,
+  suspiciousPattern: 20,
+  suspiciousKeywords: 10,
+  unusualPort: 8,
+  shortenedUrl: 10,
+  http: 8,
+  excessiveSubdomains: 10,
 }
 
 export const BRANDS = {

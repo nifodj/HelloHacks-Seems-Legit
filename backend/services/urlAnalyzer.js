@@ -164,8 +164,8 @@ function calculateRisk(signals, matches) {
   // Correlated detections share a category ceiling; multiple providers count once.
   const score = Math.min(100, Math.max(0, [...grouped.values()].reduce((sum, value) => sum + value, 0)))
   const hasShortenerSignal = signals.some((item) => item.type === 'shortener')
-  const verdict = matches.length || score >= 60 ? 'likely scam' : score >= 15 || hasShortenerSignal ? 'suspicious' : 'likely legitimate'
-  const confidence = matches.length || score >= 60 ? 'high' : score >= 25 ? 'medium' : 'low'
+  const verdict = matches.length || score >= 50 ? 'likely scam' : score >= 10 || hasShortenerSignal ? 'suspicious' : 'likely legitimate'
+  const confidence = matches.length || score >= 50 ? 'high' : score >= 20 ? 'medium' : 'low'
   return { label: verdict, riskScore: score, confidence }
 }
 
